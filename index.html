@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>LoR Draft — Pick &amp; Ban Tool</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -131,9 +134,6 @@ button{font-family:inherit;cursor:pointer}
 .mini img{width:100%;height:100%;object-fit:cover;display:block}
 .mini .mname{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.92));
   padding:14px 5px 4px;font-size:10.5px;font-weight:600;text-align:center;letter-spacing:.01em}
-.mini .mreg{position:absolute;top:0;left:0;right:0;height:3px}
-.mini .rtag{position:absolute;top:4px;left:4px;font-size:8px;font-family:'Cinzel',serif;letter-spacing:.06em;
-  background:rgba(0,0,0,.6);padding:1px 5px;border-radius:99px;border:1px solid rgba(255,255,255,.15)}
 .imgfail{display:flex;align-items:center;justify-content:center;height:100%;width:100%;font-size:11px;
   text-align:center;padding:4px;color:var(--ink-dim);font-family:'Cinzel',serif;background:rgba(255,255,255,.02)}
 
@@ -604,7 +604,7 @@ function nonBannedRegions(){ return S.regions.filter(r=>!S.bannedRegions.has(r))
 /* second regions available for a same-region deck (no champion provides them) */
 function freeSecondRegions(p, d, sharedReg){
   const used = usedPairKeys(p, d);
-  return nonBannedRegions().filter(r=> r!==sharedReg && !used.has(pairKey(sharedReg, r)));
+  return nonBannedRegions().filter(r=> r!==sharedReg && r!=='Runeterra' && !used.has(pairKey(sharedReg, r)));
 }
 /* which regions the 2nd champion may be played as (same region now allowed) */
 function valid2ndRegions(champ, step){
@@ -936,9 +936,7 @@ function playerPanel(p, st){
 }
 function miniCard(slot){
   return `<div class="mini">
-      <div class="mreg" style="background:${regColor(slot.region)}"></div>
       <img src="${slot.img}" alt="${slot.name}" onerror="this.parentNode.innerHTML='<div class=\\'imgfail\\'>${slot.name}</div>'">
-      <span class="rtag" style="color:${regColor(slot.region)}">${regName(slot.region)}</span>
       <span class="mname">${slot.name}</span>
     </div>`;
 }
@@ -957,7 +955,7 @@ function banStrip(){
     </div>`;
 }
 function regionGrid(){
-  const tiles = S.regions.filter(r=>!S.bannedRegions.has(r)).map(r=>{
+  const tiles = S.regions.filter(r=>!S.bannedRegions.has(r) && r!=='Runeterra').map(r=>{
     const n = S.champions.filter(c=>inPool(c) && availableRegions(c).includes(r)).length;
     return `<div class="region-tile" data-region="${r}">
         <div class="bar" style="background:${regColor(r)}"></div>
