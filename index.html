@@ -173,10 +173,6 @@ button{font-family:inherit;cursor:pointer}
 .card img{width:100%;height:100%;object-fit:cover;display:block}
 .card .nm{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.95));
   padding:16px 4px 5px;font-size:11px;font-weight:600;text-align:center}
-.card .regs{position:absolute;top:5px;left:5px;display:flex;gap:3px}
-.card .regs .d{width:9px;height:9px;border-radius:50%;border:1px solid rgba(0,0,0,.4)}
-.card .multi{position:absolute;top:4px;right:4px;font-size:7.5px;font-family:'Cinzel',serif;letter-spacing:.05em;
-  background:rgba(0,0,0,.65);padding:1px 5px;border-radius:99px;border:1px solid rgba(255,255,255,.2)}
 .card.sel:hover{transform:translateY(-3px) scale(1.02);border-color:#fff;box-shadow:0 12px 30px -12px rgba(0,0,0,.9)}
 .card.sel.ban:hover{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger),0 12px 30px -12px rgba(224,86,63,.6)}
 .card.dim{opacity:.28;cursor:not-allowed;filter:grayscale(.5)}
@@ -269,6 +265,20 @@ button{font-family:inherit;cursor:pointer}
 .lobby-row .lname{font-family:'Cinzel',serif;font-size:15px;flex:1;display:flex;align-items:center;gap:8px}
 .lobby-row .lstate{font-size:12px;color:var(--ink-dim)}
 .lobby-row.on .lstate{color:var(--good)}
+
+/* ---------- prominent action bar + up-next previews ---------- */
+.status.gamebar{flex-direction:column;align-items:stretch;gap:9px}
+.status-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.now{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.now .pill{font-size:12px;padding:5px 12px}
+.now-txt{font-family:'Cinzel',serif;font-size:20px;line-height:1.25;color:var(--ink)}
+.now-txt b{color:var(--accent-warm)}
+@media(max-width:640px){ .now-txt{font-size:17px} }
+.upnext{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--line);padding-top:8px}
+.upnext .up{display:flex;gap:10px;align-items:baseline;font-size:12.5px;color:var(--ink-faint);line-height:1.35}
+.upnext .lbl{flex:none;font-family:'Cinzel',serif;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-dim);min-width:74px}
+.upnext .ut{color:var(--ink-dim)}
 </style>
 </head>
 <body>
@@ -296,11 +306,11 @@ const CONFIG = {
   mirrorUrl: (s) => `https://raw.githubusercontent.com/InFinity54/LoR_DDragon_${'Set'+s.slice(3)}/master/data/${s}-en_us.json`,
 
   standardKeyword: 'standard',
-  excludeRegionRefs: ['Runeterra'],
+  excludeRegionRefs: [],   // Runeterra champions are now included (Standard only)
   forceExclude: [],
   forceInclude: [],
 
-  regionOrder: ['Demacia','Noxus','Ionia','Freljord','ShadowIsles','PiltoverZaun','Bilgewater','Targon','Shurima','BandleCity'],
+  regionOrder: ['Demacia','Noxus','Ionia','Freljord','ShadowIsles','PiltoverZaun','Bilgewater','Targon','Shurima','BandleCity','Runeterra'],
   regionNames: {
     Demacia:'Demacia', Noxus:'Noxus', Ionia:'Ionia', Freljord:'Freljord',
     ShadowIsles:'Shadow Isles', PiltoverZaun:'Piltover & Zaun', Bilgewater:'Bilgewater',
@@ -323,10 +333,15 @@ const CONFIG = {
     provider: 'jsonbin',
     binId: '6a254c89da38895dfe945d48',
     key:   '$2a$10$E6jHqDmrrbm4XR04be95JeHRXQw1igKVTz7USE/1uKR3C1qFMJN.W',
-    pollMs: 1800,
+    // adaptive polling (free JSONBin = 1 req/s on the shared key, so only the
+    // waiting side polls, and not too fast)
+    pollWaitMs: 1500,   // while waiting for the opponent's move
+    pollIdleMs: 4000,   // on your own turn / after the draft (watch for "New match")
+    pollLobbyMs: 3000,  // in the waiting room
+    lobbyBeatMs: 6000,  // how often to refresh own presence in lobby
   },
 
-  presenceTtlMs: 25000,   // a player is "connected" if seen within this window
+  presenceTtlMs: 30000,   // a player is "connected" if seen within this window
 };
 const regColor = (ref)=>getComputedStyle(document.documentElement).getPropertyValue('--r-'+ref).trim() || '#888';
 const regName  = (ref)=>CONFIG.regionNames[ref]||ref;
@@ -357,6 +372,7 @@ let S = null;
 let ME = null;
 let lastRemoteV = 0;
 let pollTimer = null;
+let lastLobbyBeat = 0;
 const app = document.getElementById('app');
 
 /* ================================================================= */
@@ -408,7 +424,7 @@ function toRecord(){
     bannedRegions: [...S.bannedRegions],
     bannedChampions: [...S.bannedChampions],
     decks: S.decks,
-    log: S.log,
+    log: S.log.slice(-16),
     ts: nowTs(),
   };
 }
@@ -432,14 +448,12 @@ function adoptRecord(rec){
   S.bannedChampions = new Set(rec.bannedChampions||[]);
   S.decks     = rec.decks || {1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]};
   S.log       = rec.log || [];
-  S.pendingChamp = null;
+  S.pending = null;
   S.pickedChampions = new Set();
-  S.completedPairs  = {1:new Set(),2:new Set()};
   for(const p of [1,2]){
     for(const deck of S.decks[p]){
-      const c1=deck[0], c2=deck[1];
-      if(c1) S.pickedChampions.add(c1.name);
-      if(c2){ S.pickedChampions.add(c2.name); S.completedPairs[p].add(pairKey(c1.region, c2.region)); }
+      if(deck[0]) S.pickedChampions.add(deck[0].name);
+      if(deck[1]) S.pickedChampions.add(deck[1].name);
     }
   }
 }
@@ -464,35 +478,52 @@ async function writeLobby(present, baseV){
   try{ await SYNC.put(rec); }catch(e){ /* will retry next poll */ }
 }
 
+function stopPolling(){ if(pollTimer){ clearTimeout(pollTimer); pollTimer=null; } }
+function scheduleTick(ms){ stopPolling(); pollTimer = setTimeout(tick, ms); }
 function startPolling(){
   if(!SYNC.live) return;
-  clearInterval(pollTimer);
-  pollTimer = setInterval(pollOnce, CONFIG.sync.pollMs);
+  scheduleTick(0);
 }
-async function pollOnce(){
-  let rec; try{ rec = await SYNC.get(); }catch(e){ return; }
+async function tick(){
+  let next = CONFIG.sync.pollIdleMs;
+  try{
+    if(S && S.mode==='lobby')      next = await lobbyTick();
+    else if(S && S.mode==='game')  { next = isMyTurn() ? CONFIG.sync.pollIdleMs : CONFIG.sync.pollWaitMs; await pullIfNewer(); }
+    else if(S && S.mode==='done')  { next = CONFIG.sync.pollIdleMs; await pullIfNewer(); }
+  }catch(e){ /* swallow, retry next tick */ }
+  scheduleTick(next);
+}
+/* read the shared record; adopt only if it's newer than what we have */
+async function pullIfNewer(){
+  const rec = await SYNC.get();
   if(!rec || typeof rec.v!=='number') return;
   lastRemoteV = Math.max(lastRemoteV, rec.v);
-
-  if(S && S.mode==='lobby') return handleLobbyPoll(rec);
-
-  if(S && S.pendingChamp) return;             // don't clobber my own region choice
+  if(S && S.pending) return;                      // don't clobber my own region choice
   if(rec.v > (S ? S.v : 0)){ adoptRecord(rec); render(); }
 }
-async function handleLobbyPoll(rec){
-  if(rec.status==='playing' || rec.status==='done'){
-    adoptRecord(rec); render();
-    if(rec.status==='playing') toast('Match started');
-    return;
+/* lobby: detect start, and heartbeat presence sparingly */
+async function lobbyTick(){
+  const rec = await SYNC.get();
+  if(rec && typeof rec.v==='number'){
+    lastRemoteV = Math.max(lastRemoteV, rec.v);
+    if(rec.status==='playing' || rec.status==='done'){
+      adoptRecord(rec); render();
+      if(rec.status==='playing') toast('Match started');
+      return CONFIG.sync.pollWaitMs;
+    }
+    const present = Object.assign({}, rec.present||{});
+    const beatDue = (Date.now() - lastLobbyBeat) > CONFIG.sync.lobbyBeatMs;
+    if(beatDue || !present[ME.id]){
+      present[ME.id] = nowTs();
+      lastLobbyBeat = Date.now();
+      await writeLobby(present, rec.v);
+    }
+    S.present = present;
+    renderLobby();
+    const fresh = freshPresent(present);
+    if(fresh.wad && fresh.challenger && ME.id===INITIATOR){ startMatch(); return CONFIG.sync.pollWaitMs; }
   }
-  // still in lobby: heartbeat my presence (merge with whatever's there)
-  const present = Object.assign({}, rec.present||{});
-  present[ME.id] = nowTs();
-  await writeLobby(present, rec.v);
-  S.present = present;
-  renderLobby();
-  const fresh = freshPresent(present);
-  if(fresh.wad && fresh.challenger && ME.id===INITIATOR){ startMatch(); }
+  return CONFIG.sync.pollLobbyMs;
 }
 
 /* ---------- data fetch ---------- */
@@ -550,16 +581,46 @@ function inPool(champ){
   return !S.bannedChampions.has(champ.name) && !S.pickedChampions.has(champ.name)
          && availableRegions(champ).length>0;
 }
-function validRegionsForStep(champ, step){
+/* a deck's two regions: from the two champs, or champ-region + chosen 2nd region
+   when both champs share a region (slot2.region2 holds that chosen 2nd region) */
+function deckRegions(deck){
+  const a = deck[0] && deck[0].region, b = deck[1] && deck[1].region;
+  if(!a) return [];
+  if(!b) return [a];
+  if(a!==b) return [a,b];
+  return deck[1].region2 ? [a, deck[1].region2] : [a];
+}
+/* region pairs already used by this player's OTHER completed decks */
+function usedPairKeys(p, exceptDeck){
+  const s = new Set();
+  S.decks[p].forEach((deck,di)=>{
+    if(di===exceptDeck) return;
+    const r = deckRegions(deck);
+    if(r.length===2) s.add(pairKey(r[0], r[1]));
+  });
+  return s;
+}
+function nonBannedRegions(){ return S.regions.filter(r=>!S.bannedRegions.has(r)); }
+/* second regions available for a same-region deck (no champion provides them) */
+function freeSecondRegions(p, d, sharedReg){
+  const used = usedPairKeys(p, d);
+  return nonBannedRegions().filter(r=> r!==sharedReg && !used.has(pairKey(sharedReg, r)));
+}
+/* which regions the 2nd champion may be played as (same region now allowed) */
+function valid2ndRegions(champ, step){
   const avail = availableRegions(champ);
-  if(step.s===0) return avail;
-  const c1 = S.decks[step.p][step.d][0];
-  const c1reg = c1 ? c1.region : null;
-  return avail.filter(r=> r!==c1reg && !S.completedPairs[step.p].has(pairKey(c1reg, r)));
+  const c1reg = step ? S.decks[step.p][step.d][0].region : null;
+  const used = usedPairKeys(step.p, step.d);
+  return avail.filter(r=>{
+    if(r!==c1reg) return !used.has(pairKey(c1reg, r));             // distinct-region deck: pair must be unique
+    return freeSecondRegions(step.p, step.d, c1reg).length>0;      // same region: a free 2nd region must exist
+  });
 }
 function champSelectable(champ, step){
   if(step.t==='cban') return inPool(champ);
-  return inPool(champ) && validRegionsForStep(champ, step).length>0;
+  if(!inPool(champ)) return false;
+  if(step.s===0) return availableRegions(champ).length>0;
+  return valid2ndRegions(champ, step).length>0;
 }
 function curStep(){ return S.steps[S.stepIndex]; }
 function pname(p){ return p===1 ? S.p1 : S.p2; }
@@ -586,22 +647,41 @@ function doChampBan(champ){
   S.log.push(`${pname(curStep().p)} banned ${champ.name}`);
   advance();
 }
-function commitPick(champ, region){
+function commitPick(champ, region, region2){
   const st = curStep();
-  S.decks[st.p][st.d][st.s] = { name:champ.name, code:champ.code, img:champ.img, region };
+  const slot = { name:champ.name, code:champ.code, img:champ.img, region };
+  if(st.s===1 && region2) slot.region2 = region2;        // deck's 2nd region for a same-region deck
+  S.decks[st.p][st.d][st.s] = slot;
   S.pickedChampions.add(champ.name);
-  if(st.s===1){
-    const c1 = S.decks[st.p][st.d][0];
-    S.completedPairs[st.p].add(pairKey(c1.region, region));
-  }
-  S.log.push(`${pname(st.p)} → Deck ${st.d+1}: ${champ.name} (${regName(region)})`);
+  const regTxt = (st.s===1 && region2)
+    ? `${regName(region)} +${regName(region2)}`
+    : regName(region);
+  S.log.push(`${pname(st.p)} → Deck ${st.d+1}: ${champ.name} (${regTxt})`);
   advance();
 }
 function onPickClick(champ){
   const st = curStep();
-  const opts = validRegionsForStep(champ, st);
-  if(opts.length<=1){ commitPick(champ, opts[0]); }
-  else { S.pendingChamp = {champ, opts}; render(); }
+  if(st.s===0){
+    const opts = availableRegions(champ);
+    if(opts.length<=1) return commitPick(champ, opts[0]);
+    S.pending = {kind:'firstRegion', champ, opts};
+    return render();
+  }
+  const opts = valid2ndRegions(champ, st);
+  if(opts.length<=1) return chooseC2Region(champ, opts[0]);
+  S.pending = {kind:'champRegion', champ, opts};
+  render();
+}
+/* after the 2nd champion's own region is decided */
+function chooseC2Region(champ, c2region){
+  const st = curStep();
+  const c1reg = S.decks[st.p][st.d][0].region;
+  if(c2region !== c1reg) return commitPick(champ, c2region);   // distinct regions → done
+  // same region → player must pick the deck's second region
+  const opts = freeSecondRegions(st.p, st.d, c1reg);
+  if(opts.length<=1) return commitPick(champ, c2region, opts[0]);
+  S.pending = {kind:'deckSecond', champ, c2region, opts};
+  render();
 }
 
 /* ================================================================= */
@@ -675,6 +755,7 @@ async function enterLobby(){
         present[ME.id] = nowTs();
         S.present = present;
         await writeLobby(present, rec.v);
+        lastLobbyBeat = Date.now();
         const fresh = freshPresent(present);
         startPolling();
         if(fresh.wad && fresh.challenger && ME.id===INITIATOR) return startMatch();
@@ -686,6 +767,7 @@ async function enterLobby(){
   const present = {}; present[ME.id] = nowTs();
   S.present = present;
   await writeLobby(present, lastRemoteV);
+  lastLobbyBeat = Date.now();
   startPolling();
   render();
 }
@@ -723,8 +805,7 @@ function startMatch(){
     champions:DATA.champions, regions:DATA.regions,
     bannedRegions:new Set(), bannedChampions:new Set(), pickedChampions:new Set(),
     decks:{1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]},
-    completedPairs:{1:new Set(),2:new Set()},
-    steps:buildSteps(), stepIndex:0, pendingChamp:null,
+    steps:buildSteps(), stepIndex:0, pending:null,
     log:[`Coin flip: ${nameOf(p1Role)} picks first`],
   };
   render();
@@ -770,32 +851,49 @@ function renderConfig(){
 }
 
 /* ---------- game ---------- */
-function stepInstruction(st){
-  if(st.t==='rban') return {tag:'BAN REGION', cls:'ban', txt:`<b>${pname(st.p)}</b> — ban a region (global for both players)`};
-  if(st.t==='cban') return {tag:'BAN', cls:'ban', txt:`<b>${pname(st.p)}</b> — ban one champion (global)`};
+function stepTag(st){
+  if(st.t==='rban') return {tag:'BAN REGION', cls:'ban'};
+  if(st.t==='cban') return {tag:'BAN', cls:'ban'};
+  return {tag:'PICK', cls:'pick'};
+}
+function actionText(st, withPlayer){
+  const who = withPlayer ? `<b>${pname(st.p)}</b> — ` : '';
+  if(st.t==='rban') return `${who}ban a region (global for both players)`;
+  if(st.t==='cban') return `${who}ban one champion (global)`;
   const which = st.s===0 ? 'the 1st champion' : 'the 2nd champion';
   let extra = '';
   if(st.s===1){
     const c1 = S.decks[st.p][st.d][0];
-    extra = c1 ? ` <span class="sub">— different region than <b>${regName(c1.region)}</b>, deck combo must be unique</span>` : '';
+    if(c1) extra = ` — region combo must be unique (same region as ${regName(c1.region)} is allowed)`;
   }
-  return {tag:'PICK', cls:'pick', txt:`<b>${pname(st.p)}</b> — pick ${which} into <b>Deck ${st.d+1}</b>${extra}`};
+  return `${who}pick ${which} into Deck ${st.d+1}${extra}`;
 }
 function renderGame(){
   const st = curStep();
-  const ins = stepInstruction(st);
+  const tg = stepTag(st);
   const myTurn = isMyTurn();
   const liveChip =
     `<div class="turn-chip"><span class="dot" style="background:var(--good);box-shadow:0 0 12px var(--good)"></span>${ME.name}</div>
      <span class="pill ${myTurn?'pick':'ban'}" style="${myTurn?'':'opacity:.85'}">${myTurn?'YOUR TURN':'WAITING'}</span>`;
+  const n1 = S.steps[S.stepIndex+1];
+  const n2 = S.steps[S.stepIndex+2];
+  const upRow = (lbl, s)=> s
+    ? `<div class="up"><span class="lbl">${lbl}</span><span class="ut">${pname(s.p)} — ${actionText(s,false)}</span></div>`
+    : '';
+  const upnext = (n1||n2) ? `<div class="upnext">${upRow('next turn', n1)}${upRow('turn after', n2)}</div>` : '';
   app.innerHTML = `
-    <div class="status">
-      ${liveChip}
-      <div class="turn-chip"><span class="dot p${st.p}"></span>${pname(st.p)}</div>
-      <span class="pill ${ins.cls}">${ins.tag}</span>
-      <div class="instr">${ins.txt}</div>
-      <div class="spacer"></div>
-      <div class="faint" style="font-size:12px">step ${S.stepIndex+1} / ${S.steps.length}</div>
+    <div class="status gamebar">
+      <div class="status-top">
+        ${liveChip}
+        <div class="spacer"></div>
+        <div class="faint" style="font-size:12px">step ${S.stepIndex+1} / ${S.steps.length}</div>
+      </div>
+      <div class="now">
+        <span class="dot p${st.p}"></span>
+        <span class="pill ${tg.cls}">${tg.tag}</span>
+        <span class="now-txt">${actionText(st,true)}</span>
+      </div>
+      ${upnext}
     </div>
     <div class="arena">
       ${playerPanel(1, st)}
@@ -807,7 +905,7 @@ function renderGame(){
       </div>
       ${playerPanel(2, st)}
     </div>`;
-  if(S.pendingChamp) renderRegionModal();
+  if(S.pending) renderRegionModal();
 }
 function playerPanel(p, st){
   const active = st.p===p && (st.t!=='rban');
@@ -816,8 +914,9 @@ function playerPanel(p, st){
   const decksHtml = S.decks[p].map((deck,di)=>{
     const c1=deck[0], c2=deck[1];
     let pairTxt='';
-    if(c1&&c2) pairTxt = `${regName(c1.region)} + ${regName(c2.region)}`;
-    else if(c1) pairTxt = regName(c1.region)+' + …';
+    const dr = deckRegions(deck);
+    if(dr.length===2) pairTxt = `${regName(dr[0])} + ${regName(dr[1])}`;
+    else if(dr.length===1) pairTxt = regName(dr[0])+' + …';
     const slotsHtml = deck.map((slot,si)=>{
       const isTarget = active && st.t==='pick' && st.d===di && st.s===si;
       if(slot) return `<div class="slot">${miniCard(slot)}</div>`;
@@ -876,24 +975,19 @@ function poolGrid(st){
   const pool = S.champions.filter(inPool);
   const cards = pool.map(c=>{
     const ok = champSelectable(c, st);
-    const avail = availableRegions(c);
-    const dots = avail.map(r=>`<span class="d" style="background:${regColor(r)}" title="${regName(r)}"></span>`).join('');
-    const multi = avail.length>1 ? `<span class="multi">MULTI</span>` : '';
     let title = c.name;
     if(!ok && st.s===1){
-      const c1=S.decks[st.p][st.d][0];
-      title = `Not allowed: must be a different region than ${c1?regName(c1.region):''} and can't repeat an existing combo`;
+      title = `Not allowed — every region pairing this champion could form is already used by another of your decks`;
     }
     return `<div class="card ${ok?'sel':'dim'} ${isBan?'ban':''}" ${ok?`data-champ="${c.name}"`:''} title="${title}">
         <img src="${c.img}" alt="${c.name}" onerror="this.parentNode.innerHTML='<div class=\\'imgfail\\'>${c.name}</div>'">
-        <div class="regs">${dots}</div>${multi}
         <div class="nm">${c.name}</div>
       </div>`;
   }).join('');
   const head = isBan
     ? `<h3>Pick a champion to ban</h3><span class="count">${pool.length} in pool</span>`
     : `<h3>Pick a champion</h3><span class="count">${pool.length} in pool</span>
-       <span class="hint">${st.s===1?'only champions forming an allowed combo are lit':'multi-region = choose the region after picking'}</span>`;
+       <span class="hint">${st.s===1?'same region is allowed — you then pick the deck\'s 2nd region':'multi-region = choose the region after picking'}</span>`;
   return `<div class="poolhead">${head}</div><div class="pool">${cards}</div>`;
 }
 function logBlock(){
@@ -904,8 +998,15 @@ function logBlock(){
   return `<div class="log"><h4>History</h4>${rows}</div>`;
 }
 function renderRegionModal(){
-  const {champ, opts} = S.pendingChamp;
+  const pend = S.pending;
+  const {champ, opts, kind} = pend;
   const st = curStep();
+  const title = (kind==='deckSecond')
+    ? `Pick the second region for Deck ${st.d+1}`
+    : `Which region will you play ${champ.name} as?`;
+  const sub = (kind==='deckSecond')
+    ? `${pname(st.p)} · both champions are ${regName(pend.c2region)} — choose the deck's other region`
+    : `${pname(st.p)} · Deck ${st.d+1} · ${st.s===0?'1st champion':'2nd champion'}`;
   const optsHtml = opts.map(r=>`
     <div class="reg-opt" data-pickregion="${r}">
       <span class="sw" style="background:${regColor(r)}"></span>
@@ -914,15 +1015,15 @@ function renderRegionModal(){
   const ov = document.createElement('div');
   ov.className='overlay'; ov.id='regOverlay';
   ov.innerHTML = `<div class="modal">
-      <h3>Which region will you play ${champ.name} as?</h3>
-      <div class="who">${pname(st.p)} · Deck ${st.d+1} · ${st.s===0?'1st champion':'2nd champion'}</div>
+      <h3>${title}</h3>
+      <div class="who">${sub}</div>
       <div class="champrow">
         <img src="${champ.img}" onerror="this.style.display='none'">
-        <span class="cn">${champ.name}</span>
+        <span class="cn">${champ.name}${kind==='deckSecond'?` <span class="faint" style="font-size:13px">(${regName(pend.c2region)})</span>`:''}</span>
       </div>
       <div class="reg-opts">${optsHtml}</div>
     </div>`;
-  ov.addEventListener('click',(e)=>{ if(e.target===ov){ S.pendingChamp=null; render(); }});
+  ov.addEventListener('click',(e)=>{ if(e.target===ov){ S.pending=null; render(); }});
   document.body.appendChild(ov);
 }
 
@@ -931,7 +1032,8 @@ function renderSummary(){
   const panel = (p)=>{
     const decks = S.decks[p].map((deck,di)=>{
       const slots = deck.map(s=>`<div class="slot">${s?miniCard(s):''}</div>`).join('');
-      const pair = `${regName(deck[0].region)} + ${regName(deck[1].region)}`;
+      const dr = deckRegions(deck);
+      const pair = dr.length===2 ? `${regName(dr[0])} + ${regName(dr[1])}` : (dr[0]?regName(dr[0]):'—');
       return `<div class="sum-deck"><div class="sum-slots">${slots}</div><div class="sp">DECK ${di+1} · ${pair}</div></div>`;
     }).join('');
     return `<div class="pside p${p}"><div class="edge"></div>
@@ -977,10 +1079,15 @@ document.addEventListener('click',(e)=>{
   const regTile = e.target.closest('[data-region]');
   if(regTile && st.t==='rban'){ return doRegionBan(regTile.dataset.region); }
   const pickReg = e.target.closest('[data-pickregion]');
-  if(pickReg && S.pendingChamp){
-    const champ = S.pendingChamp.champ; S.pendingChamp=null;
+  if(pickReg && S.pending){
+    const pend = S.pending;
+    const region = pickReg.dataset.pickregion;
+    S.pending = null;
     document.getElementById('regOverlay')?.remove();
-    return commitPick(champ, pickReg.dataset.pickregion);
+    if(pend.kind==='firstRegion')  return commitPick(pend.champ, region);          // 1st champion's region
+    if(pend.kind==='champRegion')  return chooseC2Region(pend.champ, region);      // 2nd champion's own region
+    if(pend.kind==='deckSecond')   return commitPick(pend.champ, pend.c2region, region); // deck's 2nd region
+    return;
   }
   const card = e.target.closest('[data-champ]');
   if(card){
@@ -992,7 +1099,7 @@ document.addEventListener('click',(e)=>{
 });
 document.getElementById('btnRestart').onclick = ()=>{
   if(!confirm('Start a brand-new match? This resets the draft for both players.')) return;
-  S.pendingChamp=null; document.getElementById('regOverlay')?.remove();
+  S.pending=null; document.getElementById('regOverlay')?.remove();
   startMatch();
 };
 
