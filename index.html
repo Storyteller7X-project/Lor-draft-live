@@ -194,6 +194,9 @@ button{font-family:inherit;cursor:pointer}
 .reg-opt:hover{border-color:#fff;transform:translateX(3px)}
 .reg-opt .sw{width:16px;height:16px;border-radius:4px}
 .reg-opt .ro-name{font-family:'Cinzel',serif;font-size:15px}
+.reg-opt.disabled{opacity:.4;cursor:not-allowed;background:rgba(0,0,0,.15)}
+.reg-opt.disabled:hover{border-color:var(--line2);transform:none}
+.reg-opt .ro-reason{margin-left:auto;font-size:10.5px;color:var(--ink-dim);font-style:italic;text-align:right}
 
 /* ---------- setup / loading / summary ---------- */
 .screen{display:flex;align-items:center;justify-content:center;min-height:62vh}
@@ -667,9 +670,12 @@ function onPickClick(champ){
     S.pending = {kind:'firstRegion', champ, opts};
     return render();
   }
-  const opts = valid2ndRegions(champ, st);
-  if(opts.length<=1) return chooseC2Region(champ, opts[0]);
-  S.pending = {kind:'champRegion', champ, opts};
+  // s === 1 (second champion)
+  const avail = availableRegions(champ);
+  const valid = valid2ndRegions(champ, st);
+  if(avail.length<=1) return chooseC2Region(champ, valid[0] || avail[0]);
+  // multi-region: always show the modal so blocked regions are visible (greyed, with a reason)
+  S.pending = {kind:'champRegion', champ, opts:avail, valid};
   render();
 }
 /* after the 2nd champion's own region is decided */
@@ -999,17 +1005,26 @@ function renderRegionModal(){
   const pend = S.pending;
   const {champ, opts, kind} = pend;
   const st = curStep();
+  const validSet = new Set(kind==='champRegion' ? (pend.valid||[]) : opts);
+  const c1reg = (kind==='champRegion') ? S.decks[st.p][st.d][0].region : null;
   const title = (kind==='deckSecond')
     ? `Pick the second region for Deck ${st.d+1}`
     : `Which region will you play ${champ.name} as?`;
   const sub = (kind==='deckSecond')
     ? `${pname(st.p)} · both champions are ${regName(pend.c2region)} — choose the deck's other region`
     : `${pname(st.p)} · Deck ${st.d+1} · ${st.s===0?'1st champion':'2nd champion'}`;
-  const optsHtml = opts.map(r=>`
-    <div class="reg-opt" data-pickregion="${r}">
-      <span class="sw" style="background:${regColor(r)}"></span>
-      <span class="ro-name">${regName(r)}</span>
-    </div>`).join('');
+  const optsHtml = opts.map(r=>{
+    const ok = validSet.has(r);
+    let reason = '';
+    if(!ok && kind==='champRegion'){
+      reason = (r===c1reg) ? 'no free 2nd region left' : `${regName(c1reg)} + ${regName(r)} already used`;
+    }
+    return `<div class="reg-opt ${ok?'':'disabled'}" ${ok?`data-pickregion="${r}"`:''}>
+        <span class="sw" style="background:${regColor(r)}"></span>
+        <span class="ro-name">${regName(r)}</span>
+        ${ok?'':`<span class="ro-reason">${reason}</span>`}
+      </div>`;
+  }).join('');
   const ov = document.createElement('div');
   ov.className='overlay'; ov.id='regOverlay';
   ov.innerHTML = `<div class="modal">
