@@ -348,9 +348,13 @@ const CONFIG = {
 };
 const regColor = (ref)=>getComputedStyle(document.documentElement).getPropertyValue('--r-'+ref).trim() || '#888';
 const regName  = (ref)=>CONFIG.regionNames[ref]||ref;
-const nameOf   = (id)=>{ for(const k in CONFIG.auth){ if(CONFIG.auth[k].id===id) return CONFIG.auth[k].name; } return id; };
+const roleName = (id)=>{ for(const k in CONFIG.auth){ if(CONFIG.auth[k].id===id) return CONFIG.auth[k].name; } return id; };
+let NAMES = {};   // custom nicknames per role id, synced between players
+const nameOf   = (id)=> (NAMES && NAMES[id]) || roleName(id);
 const otherId  = (id)=> id==='wad' ? 'challenger' : 'wad';
 const INITIATOR = 'wad';   // when both connect, this side rolls the coin & starts
+function cleanNick(s){ return String(s||'').replace(/[<>"'&]/g,'').trim().slice(0,20); }
+function mergeNames(src){ if(!src) return; for(const k in src){ if(k!==(ME&&ME.id) && src[k]) NAMES[k]=src[k]; } }
 
 /* =================================================================
    DRAFT ORDER  (exactly per spec)
@@ -422,6 +426,7 @@ function toRecord(){
     v: S.v,
     status: S.mode==='done' ? 'done' : 'playing',
     present: S.present || {wad:nowTs(), challenger:nowTs()},
+    names: {...NAMES},
     p1Role: S.p1Role,
     stepIndex: S.stepIndex,
     bannedRegions: [...S.bannedRegions],
@@ -440,9 +445,8 @@ function adoptRecord(rec){
   S.meId      = ME ? ME.id : null;
   S.v         = rec.v;
   S.present   = rec.present || {};
+  mergeNames(rec.names);
   S.p1Role    = rec.p1Role;
-  S.p1        = nameOf(rec.p1Role);
-  S.p2        = nameOf(otherId(rec.p1Role));
   S.champions = DATA.champions;
   S.regions   = DATA.regions;
   S.steps     = buildSteps();
@@ -472,7 +476,7 @@ async function pushState(){
 async function writeLobby(present, baseV){
   const rec = {
     v: Math.max(lastRemoteV, baseV||0) + 1,
-    status:'lobby', present,
+    status:'lobby', present, names:{...NAMES},
     p1Role:null, stepIndex:0, bannedRegions:[], bannedChampions:[],
     decks:{1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]},
     log:[], ts:nowTs()
@@ -515,6 +519,7 @@ async function lobbyTick(){
       return CONFIG.sync.pollWaitMs;
     }
     const present = Object.assign({}, rec.present||{});
+    mergeNames(rec.names);
     const beatDue = (Date.now() - lastLobbyBeat) > CONFIG.sync.lobbyBeatMs;
     if(beatDue || !present[ME.id]){
       present[ME.id] = nowTs();
@@ -626,7 +631,7 @@ function champSelectable(champ, step){
   return valid2ndRegions(champ, step).length>0;
 }
 function curStep(){ return S.steps[S.stepIndex]; }
-function pname(p){ return p===1 ? S.p1 : S.p2; }
+function pname(p){ return nameOf(p===1 ? S.p1Role : otherId(S.p1Role)); }
 function myPlayerNum(){ return (S.p1Role===ME.id) ? 1 : 2; }
 function isMyTurn(){
   if(!S || S.mode!=='game') return false;
@@ -714,6 +719,8 @@ function renderLogin(){
       <p class="lead">Legends of Runeterra · Pick &amp; Ban draft</p>
       <div class="field"><label>Access code</label>
         <input id="code" placeholder="access code" autocomplete="off" spellcheck="false"></div>
+      <div class="field"><label>Nickname <span class="faint" style="font-size:11px">(optional)</span></label>
+        <input id="nick" placeholder="shown in the draft" autocomplete="off" spellcheck="false" maxlength="20"></div>
       <button class="btn bigbtn" id="loginBtn">Enter</button>
       <div id="loginErr" style="display:none;color:var(--danger);font-size:13px;margin-top:12px;text-align:center"></div>
       <div class="faint" style="margin-top:18px;font-size:12px;text-align:center;line-height:1.5">
@@ -721,12 +728,15 @@ function renderLogin(){
       </div>
     </div></div>`;
   const inp = document.getElementById('code');
-  const go = ()=>tryLogin(inp.value);
+  const nick = document.getElementById('nick');
+  const go = ()=>tryLogin(inp.value, nick.value);
   document.getElementById('loginBtn').onclick = go;
-  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+  const onKey = e=>{ if(e.key==='Enter') go(); };
+  inp.addEventListener('keydown', onKey);
+  nick.addEventListener('keydown', onKey);
   inp.focus();
 }
-async function tryLogin(raw){
+async function tryLogin(raw, rawNick){
   const code = (raw||'').trim();
   const who = CONFIG.auth[code];
   if(!who){
@@ -734,7 +744,9 @@ async function tryLogin(raw){
     if(el){ el.style.display=''; el.textContent='Invalid access code.'; }
     return;
   }
-  ME = { id:who.id, name:who.name };
+  const nick = cleanNick(rawNick) || who.name;
+  ME = { id:who.id, name:nick };
+  NAMES[who.id] = nick;
   SYNC.live = syncConfigured();
   S = { mode:'loading', prog:0, progTotal:CONFIG.sets.length };
   render();
@@ -757,6 +769,7 @@ async function enterLobby(){
       lastRemoteV = rec.v;
       if(rec.status==='playing'){ adoptRecord(rec); startPolling(); return render(); }
       if(rec.status==='lobby'){
+        mergeNames(rec.names);
         const present = Object.assign({}, rec.present||{});
         present[ME.id] = nowTs();
         S.present = present;
@@ -807,7 +820,7 @@ function startMatch(){
     mode:'game', live:SYNC.live, meId:ME.id,
     v: lastRemoteV,
     present: {wad:nowTs(), challenger:nowTs()},
-    p1Role, p1:nameOf(p1Role), p2:nameOf(otherId(p1Role)),
+    p1Role,
     champions:DATA.champions, regions:DATA.regions,
     bannedRegions:new Set(), bannedChampions:new Set(), pickedChampions:new Set(),
     decks:{1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]},
@@ -1068,7 +1081,7 @@ function copySummary(){
   const fmt = (p)=> S.decks[p].map((d,i)=>
     `  Deck ${i+1}: ${d[0].name} (${regName(d[0].region)}) + ${d[1].name} (${regName(d[1].region)})`).join('\n');
   const txt =
-`LoR Draft\nFirst pick: ${S.p1}\n\n${S.p1}:\n${fmt(1)}\n\n${S.p2}:\n${fmt(2)}\n\n`+
+`LoR Draft\nFirst pick: ${pname(1)}\n\n${pname(1)}:\n${fmt(1)}\n\n${pname(2)}:\n${fmt(2)}\n\n`+
 `Banned regions: ${[...S.bannedRegions].map(regName).join(', ')||'—'}\n`+
 `Banned champions: ${[...S.bannedChampions].join(', ')||'—'}`;
   navigator.clipboard?.writeText(txt).then(
