@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoR Draft — Pick &amp; Ban Tool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   LoR DRAFT TOOL — single file, vanilla JS
+   ============================================================ */
+:root{
+  --bg:#0a0e12;
+  --bg2:#0e151b;
+  --panel:#121a22;
+  --panel2:#16212b;
+  --line:#26333f;
+  --line2:#33485a;
+  --ink:#e8eef2;
+  --ink-dim:#9bb0bf;
+  --ink-faint:#62788a;
+  --accent:#4fd1c5;        /* arcane teal */
+  --accent-warm:#d4b04a;   /* gold */
+  --danger:#e0563f;
+  --good:#5dd47f;
+  --p1:#5aa9e6;            /* player 1 hue */
+  --p2:#e6915a;            /* player 2 hue */
+  /* region colors */
+  --r-Demacia:#d8bd57;
+  --r-Noxus:#c0392b;
+  --r-Freljord:#74c0e0;
+  --r-Ionia:#e07bb0;
+  --r-ShadowIsles:#3bb39a;
+  --r-PiltoverZaun:#e0922f;
+  --r-Bilgewater:#c75a3a;
+  --r-Targon:#9a82e6;
+  --r-Shurima:#e0b745;
+  --r-BandleCity:#cf9a5e;
+  --r-Runeterra:#aeb7bf;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1200px 700px at 80% -10%, rgba(79,209,197,.08), transparent 60%),
+    radial-gradient(900px 600px at -10% 110%, rgba(212,176,74,.06), transparent 60%),
+    var(--bg);
+  color:var(--ink);
+  font-family:'Spectral',Georgia,serif;
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.025'/%3E%3C/svg%3E");
+  mix-blend-mode:overlay;
+}
+.wrap{position:relative;z-index:1;max-width:1480px;margin:0 auto;padding:18px 16px 60px}
+h1,h2,h3,.disp{font-family:'Cinzel',serif;letter-spacing:.04em}
+button{font-family:inherit;cursor:pointer}
+.muted{color:var(--ink-dim)}
+.faint{color:var(--ink-faint)}
+
+/* ---------- top bar ---------- */
+.topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.brand{display:flex;flex-direction:column;line-height:1.05}
+.brand .t{font-size:24px;font-weight:700;color:var(--ink)}
+.brand .s{font-size:11px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);font-family:'Cinzel',serif}
+.spacer{flex:1}
+.btn{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);color:var(--ink);
+  padding:9px 16px;border-radius:8px;font-size:14px;letter-spacing:.02em;transition:.15s;font-family:'Cinzel',serif}
+.btn:hover{border-color:var(--accent);color:#fff;box-shadow:0 0 0 1px rgba(79,209,197,.25)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.ghost{background:transparent}
+.btn.warm{border-color:var(--accent-warm)}
+.btn.warm:hover{border-color:var(--accent-warm);box-shadow:0 0 0 1px rgba(212,176,74,.3)}
+
+/* ---------- status bar ---------- */
+.status{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));
+  border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:16px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03);
+}
+.turn-chip{display:flex;align-items:center;gap:10px;font-family:'Cinzel',serif;font-size:15px}
+.dot{width:12px;height:12px;border-radius:50%}
+.dot.p1{background:var(--p1);box-shadow:0 0 12px var(--p1)}
+.dot.p2{background:var(--p2);box-shadow:0 0 12px var(--p2)}
+.status .instr{font-size:15px;color:var(--ink)}
+.status .instr b{color:var(--accent-warm)}
+.status .sub{font-size:12.5px;color:var(--ink-dim)}
+.pill{font-family:'Cinzel',serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  padding:4px 10px;border-radius:99px;border:1px solid var(--line2)}
+.pill.ban{color:var(--danger);border-color:rgba(224,86,63,.45)}
+.pill.pick{color:var(--accent);border-color:rgba(79,209,197,.45)}
+
+/* ---------- layout ---------- */
+.stage{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.board{grid-column:1 / -1;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.pside{
+  background:linear-gradient(180deg,rgba(22,33,43,.7),rgba(18,26,34,.7));
+  border:1px solid var(--line);border-radius:14px;padding:12px;position:relative;overflow:hidden;
+}
+.pside.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(79,209,197,.3),0 10px 40px -20px rgba(79,209,197,.5)}
+.pside .edge{position:absolute;top:0;left:0;width:4px;height:100%}
+.pside.p1 .edge{background:linear-gradient(var(--p1),transparent)}
+.pside.p2 .edge{background:linear-gradient(var(--p2),transparent)}
+.pside h2{margin:2px 0 12px 6px;font-size:17px;display:flex;align-items:center;gap:9px}
+.pside.p2 h2{flex-direction:row-reverse;text-align:right;margin-left:0;margin-right:6px;justify-content:flex-start}
+.pside.p2{text-align:right}
+.first-tag{font-size:10px;letter-spacing:.16em;color:var(--accent-warm);border:1px solid rgba(212,176,74,.4);
+  padding:2px 7px;border-radius:99px;font-family:'Cinzel',serif}
+
+.decks{display:flex;flex-direction:column;gap:10px}
+.deck{border:1px solid var(--line);border-radius:10px;padding:9px;background:rgba(10,14,18,.5)}
+.deck .dh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.deck .dh .dl{font-family:'Cinzel',serif;font-size:12px;letter-spacing:.1em;color:var(--ink-dim)}
+.deck .pair{font-size:11px;color:var(--ink-faint)}
+.slots{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pside.p2 .dh{flex-direction:row-reverse}
+.slot{
+  position:relative;border:1px dashed var(--line2);border-radius:8px;aspect-ratio:3/4;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;background:rgba(0,0,0,.25);
+}
+.slot.target{border-style:solid;border-color:var(--accent);box-shadow:0 0 18px -4px rgba(79,209,197,.6) inset}
+.slot .ph{font-size:10px;color:var(--ink-faint);text-align:center;letter-spacing:.08em;font-family:'Cinzel',serif}
+.slot .ph .num{display:block;font-size:20px;color:var(--line2);margin-bottom:2px}
+.mini{position:absolute;inset:0}
+.mini img{width:100%;height:100%;object-fit:cover;display:block}
+.mini .mname{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.92));
+  padding:14px 5px 4px;font-size:10.5px;font-weight:600;text-align:center;letter-spacing:.01em}
+.mini .mreg{position:absolute;top:0;left:0;right:0;height:3px}
+.mini .rtag{position:absolute;top:4px;left:4px;font-size:8px;font-family:'Cinzel',serif;letter-spacing:.06em;
+  background:rgba(0,0,0,.6);padding:1px 5px;border-radius:99px;border:1px solid rgba(255,255,255,.15)}
+.imgfail{display:flex;align-items:center;justify-content:center;height:100%;width:100%;font-size:11px;
+  text-align:center;padding:4px;color:var(--ink-dim);font-family:'Cinzel',serif;background:rgba(255,255,255,.02)}
+
+/* ---------- center / pool ---------- */
+.center{grid-column:1 / -1}
+.banstrip{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;margin:4px 2px 14px}
+.banbox{flex:1;min-width:220px}
+.banbox .lbl{font-family:'Cinzel',serif;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--danger);margin-bottom:7px}
+.banchips{display:flex;flex-wrap:wrap;gap:6px}
+.rchip{font-size:11px;font-family:'Cinzel',serif;letter-spacing:.04em;padding:4px 9px;border-radius:7px;
+  border:1px solid var(--line2);background:rgba(0,0,0,.3);display:flex;align-items:center;gap:6px}
+.rchip .sw{width:9px;height:9px;border-radius:2px}
+.cban-chip{display:flex;align-items:center;gap:6px;font-size:11.5px;padding:3px 8px 3px 3px;border-radius:7px;
+  border:1px solid rgba(224,86,63,.35);background:rgba(224,86,63,.07)}
+.cban-chip img{width:18px;height:24px;object-fit:cover;border-radius:3px;filter:grayscale(.6)}
+.empty-note{font-size:12px;color:var(--ink-faint);font-style:italic}
+
+.poolhead{display:flex;align-items:baseline;gap:12px;margin:2px 2px 10px}
+.poolhead h3{font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);margin:0}
+.poolhead .count{font-size:12px;color:var(--ink-faint)}
+.poolhead .hint{margin-left:auto;font-size:12px;color:var(--accent-warm)}
+
+/* region grid (region ban phase) */
+.region-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.region-tile{position:relative;border:1px solid var(--line2);border-radius:12px;padding:16px 14px;cursor:pointer;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));transition:.15s;overflow:hidden}
+.region-tile:hover{transform:translateY(-2px);border-color:#fff}
+.region-tile .glow{position:absolute;inset:0;opacity:.16}
+.region-tile .rn{font-family:'Cinzel',serif;font-size:16px;position:relative;z-index:1}
+.region-tile .rc{font-size:11px;color:var(--ink-dim);position:relative;z-index:1;margin-top:3px}
+.region-tile .bar{position:absolute;left:0;top:0;bottom:0;width:5px}
+
+/* champion pool grid */
+.pool{display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:10px}
+.card{position:relative;border-radius:9px;overflow:hidden;cursor:pointer;aspect-ratio:3/4;
+  border:1.5px solid var(--line2);background:#0c1116;transition:transform .12s,box-shadow .12s,border-color .12s}
+.card img{width:100%;height:100%;object-fit:cover;display:block}
+.card .nm{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(transparent,rgba(0,0,0,.95));
+  padding:16px 4px 5px;font-size:11px;font-weight:600;text-align:center}
+.card .regs{position:absolute;top:5px;left:5px;display:flex;gap:3px}
+.card .regs .d{width:9px;height:9px;border-radius:50%;border:1px solid rgba(0,0,0,.4)}
+.card .multi{position:absolute;top:4px;right:4px;font-size:7.5px;font-family:'Cinzel',serif;letter-spacing:.05em;
+  background:rgba(0,0,0,.65);padding:1px 5px;border-radius:99px;border:1px solid rgba(255,255,255,.2)}
+.card.sel:hover{transform:translateY(-3px) scale(1.02);border-color:#fff;box-shadow:0 12px 30px -12px rgba(0,0,0,.9)}
+.card.sel.ban:hover{border-color:var(--danger);box-shadow:0 0 0 1px var(--danger),0 12px 30px -12px rgba(224,86,63,.6)}
+.card.dim{opacity:.28;cursor:not-allowed;filter:grayscale(.5)}
+.card.dim .nm{opacity:.8}
+
+/* ---------- modal (region choose) ---------- */
+.overlay{position:fixed;inset:0;background:rgba(4,7,10,.78);backdrop-filter:blur(3px);z-index:50;
+  display:flex;align-items:center;justify-content:center;padding:20px}
+.modal{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);
+  border-radius:16px;padding:22px;max-width:460px;width:100%;box-shadow:0 30px 80px -30px #000}
+.modal h3{margin:0 0 4px;font-size:18px}
+.modal .who{font-size:13px;color:var(--ink-dim);margin-bottom:16px}
+.modal .champrow{display:flex;gap:12px;align-items:center;margin-bottom:18px}
+.modal .champrow img{width:54px;height:72px;object-fit:cover;border-radius:6px;border:1px solid var(--line2)}
+.modal .champrow .cn{font-family:'Cinzel',serif;font-size:17px}
+.reg-opts{display:flex;flex-direction:column;gap:9px}
+.reg-opt{display:flex;align-items:center;gap:11px;border:1px solid var(--line2);border-radius:10px;
+  padding:12px 14px;cursor:pointer;transition:.13s;background:rgba(0,0,0,.25)}
+.reg-opt:hover{border-color:#fff;transform:translateX(3px)}
+.reg-opt .sw{width:16px;height:16px;border-radius:4px}
+.reg-opt .ro-name{font-family:'Cinzel',serif;font-size:15px}
+
+/* ---------- setup / loading / summary ---------- */
+.screen{display:flex;align-items:center;justify-content:center;min-height:62vh}
+.panelbox{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);
+  border-radius:18px;padding:34px 32px;max-width:560px;width:100%;box-shadow:0 30px 80px -40px #000}
+.panelbox h2{font-size:26px;margin:0 0 6px;text-align:center}
+.panelbox .lead{text-align:center;color:var(--ink-dim);margin:0 0 26px;font-size:14px}
+.field{margin-bottom:16px}
+.field label{display:block;font-family:'Cinzel',serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-dim);margin-bottom:6px}
+.field input{width:100%;background:rgba(0,0,0,.35);border:1px solid var(--line2);border-radius:9px;
+  padding:11px 13px;color:var(--ink);font-family:'Spectral',serif;font-size:15px}
+.field input:focus{outline:none;border-color:var(--accent)}
+.bigbtn{width:100%;margin-top:10px;padding:14px;font-size:16px;letter-spacing:.08em;
+  background:linear-gradient(180deg,#1c3a3a,#13262a);border:1px solid var(--accent);color:#eafffb}
+.bigbtn:hover{box-shadow:0 0 30px -8px var(--accent)}
+.coin{text-align:center;margin-top:18px;font-family:'Cinzel',serif;font-size:15px}
+.coin b{color:var(--accent-warm)}
+
+.loadwrap{text-align:center}
+.spinner{width:54px;height:54px;border:3px solid var(--line2);border-top-color:var(--accent);border-radius:50%;
+  margin:0 auto 20px;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.progress{width:320px;max-width:80vw;height:6px;background:var(--line);border-radius:99px;margin:14px auto 8px;overflow:hidden}
+.progress .bar{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-warm));width:0;transition:width .3s}
+.errbox{border:1px solid var(--danger);background:rgba(224,86,63,.08);border-radius:12px;padding:18px;color:#ffd9d0;
+  font-size:14px;max-width:520px;margin:0 auto;text-align:left;line-height:1.5}
+
+/* summary */
+.sum-decks{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px}
+.sum-deck{border:1px solid var(--line2);border-radius:10px;padding:8px;background:rgba(0,0,0,.3)}
+.sum-deck .sp{font-size:11px;color:var(--ink-faint);text-align:center;margin-top:6px;font-family:'Cinzel',serif;letter-spacing:.05em}
+.sum-slots{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+
+.log{margin-top:22px;border-top:1px solid var(--line);padding-top:12px}
+.log h4{font-family:'Cinzel',serif;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);margin:0 0 8px}
+.log .row{font-size:12.5px;color:var(--ink-dim);padding:2px 0;display:flex;gap:8px}
+.log .row .n{color:var(--ink-faint);width:22px;text-align:right;flex:none}
+
+@media(max-width:880px){
+  .board{grid-template-columns:1fr}
+  .sum-decks{grid-template-columns:1fr}
+  .pool{grid-template-columns:repeat(auto-fill,minmax(78px,1fr))}
+}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--panel2);
+  border:1px solid var(--danger);color:#ffd9d0;padding:11px 18px;border-radius:10px;font-size:13.5px;z-index:80;
+  box-shadow:0 14px 40px -16px #000;animation:fade .25s}
+@keyframes fade{from{opacity:0;transform:translateX(-50%) translateY(8px)}}
+
+/* ---------- live duel: 3-column LoL-client layout ---------- */
+.arena{display:grid;grid-template-columns:minmax(210px,1fr) minmax(360px,2.3fr) minmax(210px,1fr);gap:14px;align-items:start}
+.arena .mid{min-width:0}
+.mid.locked{position:relative}
+.mid.locked .pool,.mid.locked .region-grid{pointer-events:none;opacity:.5;filter:grayscale(.4)}
+.waitbanner{font-family:'Cinzel',serif;font-size:13px;letter-spacing:.06em;color:var(--accent-warm);
+  border:1px dashed var(--line2);border-radius:10px;padding:11px 14px;margin:0 0 14px;text-align:center;background:rgba(0,0,0,.25)}
+@media(max-width:1100px){
+  .arena{grid-template-columns:1fr 1fr}
+  .arena .mid{grid-column:1 / -1;order:3}
+}
+@media(max-width:880px){ .arena{grid-template-columns:1fr} }
+
+/* ---------- lobby presence ---------- */
+.lobby-list{display:flex;flex-direction:column;gap:10px;margin:8px 0 2px}
+.lobby-row{display:flex;align-items:center;gap:12px;border:1px solid var(--line2);border-radius:10px;padding:12px 14px;background:rgba(0,0,0,.25);transition:.15s}
+.lobby-row.on{border-color:rgba(93,212,127,.45)}
+.lobby-row .lstatus{font-size:15px;color:var(--ink-faint)}
+.lobby-row.on .lstatus{color:var(--good)}
+.lobby-row .lname{font-family:'Cinzel',serif;font-size:15px;flex:1;display:flex;align-items:center;gap:8px}
+.lobby-row .lstate{font-size:12px;color:var(--ink-dim)}
+.lobby-row.on .lstate{color:var(--good)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <span class="s">Legends of Runeterra</span>
+      <span class="t">Draft · Pick &amp; Ban</span>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="btnUndo" style="display:none">↶ Undo</button>
+    <button class="btn ghost" id="btnRestart" style="display:none">New match</button>
+  </div>
+  <div id="app"></div>
+</div>
+
+<script>
+/* =================================================================
+   CONFIG — everything in one place (easy maintenance / future edits)
+   ================================================================= */
+const CONFIG = {
+  locale: 'en_us',
+  sets: ['set1','set2','set3','set4','set5','set6','set6cde','set7','set7b','set8','set9'],
+  cdnUrl: (s) => `https://dd.b.pvp.net/latest/${s}/en_us/data/${s}-en_us.json`,
+  mirrorUrl: (s) => `https://raw.githubusercontent.com/InFinity54/LoR_DDragon_${'Set'+s.slice(3)}/master/data/${s}-en_us.json`,
+
+  standardKeyword: 'standard',
+  excludeRegionRefs: ['Runeterra'],
+  forceExclude: [],
+  forceInclude: [],
+
+  regionOrder: ['Demacia','Noxus','Ionia','Freljord','ShadowIsles','PiltoverZaun','Bilgewater','Targon','Shurima','BandleCity'],
+  regionNames: {
+    Demacia:'Demacia', Noxus:'Noxus', Ionia:'Ionia', Freljord:'Freljord',
+    ShadowIsles:'Shadow Isles', PiltoverZaun:'Piltover & Zaun', Bilgewater:'Bilgewater',
+    Targon:'Targon', Shurima:'Shurima', BandleCity:'Bandle City', Runeterra:'Runeterra'
+  },
+
+  /* ----- LOGIN: access codes (case-sensitive) ----- */
+  auth: {
+    'WaD100*':        { id:'wad',        name:'WAD' },
+    'challenger213*': { id:'challenger', name:'Challenger' },
+  },
+
+  /* ----- LIVE SYNC (two players, separate devices) -----
+     Uses one shared JSONBin record. Steps to enable:
+       1. Free account at jsonbin.io
+       2. Create a new bin with starting JSON  { "v": 0 }
+       3. Paste the Bin ID into  binId  below
+       4. Paste your Master Key into  key  below */
+  sync: {
+    provider: 'jsonbin',
+    binId: 'PUT_YOUR_BIN_ID_HERE',
+    key:   'PUT_YOUR_MASTER_KEY_HERE',
+    pollMs: 1800,
+  },
+
+  presenceTtlMs: 25000,   // a player is "connected" if seen within this window
+};
+const regColor = (ref)=>getComputedStyle(document.documentElement).getPropertyValue('--r-'+ref).trim() || '#888';
+const regName  = (ref)=>CONFIG.regionNames[ref]||ref;
+const nameOf   = (id)=>{ for(const k in CONFIG.auth){ if(CONFIG.auth[k].id===id) return CONFIG.auth[k].name; } return id; };
+const otherId  = (id)=> id==='wad' ? 'challenger' : 'wad';
+const INITIATOR = 'wad';   // when both connect, this side rolls the coin & starts
+
+/* =================================================================
+   DRAFT ORDER  (exactly per spec)
+   ================================================================= */
+function buildSteps(){
+  return [
+    {t:'rban', p:1}, {t:'rban', p:2},
+    {t:'cban', p:1}, {t:'cban', p:2},
+    {t:'pick', p:2, d:0, s:0},{t:'pick', p:1, d:0, s:0},{t:'pick', p:2, d:1, s:0},
+    {t:'cban', p:2}, {t:'cban', p:1},
+    {t:'pick', p:1, d:1, s:0},{t:'pick', p:2, d:2, s:0},{t:'pick', p:1, d:2, s:0},
+    {t:'cban', p:1}, {t:'cban', p:2},
+    {t:'pick', p:2, d:0, s:1},{t:'pick', p:1, d:0, s:1},{t:'pick', p:2, d:1, s:1},
+    {t:'cban', p:1}, {t:'cban', p:2},
+    {t:'pick', p:1, d:1, s:1},{t:'pick', p:2, d:2, s:1},{t:'pick', p:1, d:2, s:1},
+  ];
+}
+
+/* ================================================================= */
+let DATA = null;
+let S = null;
+let ME = null;
+let lastRemoteV = 0;
+let pollTimer = null;
+const app = document.getElementById('app');
+
+/* ================================================================= */
+/*  LIVE SYNC (JSONBin)                                              */
+/* ================================================================= */
+const SYNC = {
+  live:false,
+  base:'https://api.jsonbin.io/v3/b/',
+  async get(){
+    const r = await fetch(this.base+CONFIG.sync.binId+'/latest', { headers:{'X-Master-Key':CONFIG.sync.key} });
+    if(!r.ok) throw new Error('GET '+r.status);
+    const j = await r.json();
+    return j.record;
+  },
+  async put(rec){
+    const r = await fetch(this.base+CONFIG.sync.binId, {
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':CONFIG.sync.key,'X-Bin-Versioning':'false'},
+      body:JSON.stringify(rec)
+    });
+    if(!r.ok) throw new Error('PUT '+r.status);
+    return true;
+  }
+};
+function syncConfigured(){
+  const c = CONFIG.sync;
+  return c.provider==='jsonbin'
+      && c.binId && !/^PUT_/.test(c.binId)
+      && c.key   && !/^PUT_/.test(c.key);
+}
+const nowTs = ()=>Date.now();
+function freshPresent(present){
+  const t = nowTs(), r = {};
+  for(const id of ['wad','challenger']){
+    const v = present && present[id];
+    r[id] = (typeof v==='number') ? (t - v < CONFIG.presenceTtlMs) : !!v;
+  }
+  return r;
+}
+
+/* serialize active state -> shared record */
+function toRecord(){
+  return {
+    v: S.v,
+    status: S.mode==='done' ? 'done' : 'playing',
+    present: S.present || {wad:nowTs(), challenger:nowTs()},
+    p1Role: S.p1Role,
+    stepIndex: S.stepIndex,
+    bannedRegions: [...S.bannedRegions],
+    bannedChampions: [...S.bannedChampions],
+    decks: S.decks,
+    log: S.log,
+    ts: nowTs(),
+  };
+}
+/* shared record -> rebuild active game state */
+function adoptRecord(rec){
+  lastRemoteV = rec.v;
+  S = S || {};
+  S.mode      = rec.status==='done' ? 'done' : 'game';
+  S.live      = SYNC.live;
+  S.meId      = ME ? ME.id : null;
+  S.v         = rec.v;
+  S.present   = rec.present || {};
+  S.p1Role    = rec.p1Role;
+  S.p1        = nameOf(rec.p1Role);
+  S.p2        = nameOf(otherId(rec.p1Role));
+  S.champions = DATA.champions;
+  S.regions   = DATA.regions;
+  S.steps     = buildSteps();
+  S.stepIndex = rec.stepIndex;
+  S.bannedRegions   = new Set(rec.bannedRegions||[]);
+  S.bannedChampions = new Set(rec.bannedChampions||[]);
+  S.decks     = rec.decks || {1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]};
+  S.log       = rec.log || [];
+  S.pendingChamp = null;
+  S.pickedChampions = new Set();
+  S.completedPairs  = {1:new Set(),2:new Set()};
+  for(const p of [1,2]){
+    for(const deck of S.decks[p]){
+      const c1=deck[0], c2=deck[1];
+      if(c1) S.pickedChampions.add(c1.name);
+      if(c2){ S.pickedChampions.add(c2.name); S.completedPairs[p].add(pairKey(c1.region, c2.region)); }
+    }
+  }
+}
+async function pushState(){
+  if(!SYNC.live) return;
+  S.v = Math.max(S.v||0, lastRemoteV) + 1;
+  lastRemoteV = S.v;
+  try{ await SYNC.put(toRecord()); }
+  catch(e){ toast('Sync failed — will retry'); }
+}
+
+/* ----- lobby write (presence) ----- */
+async function writeLobby(present, baseV){
+  const rec = {
+    v: Math.max(lastRemoteV, baseV||0) + 1,
+    status:'lobby', present,
+    p1Role:null, stepIndex:0, bannedRegions:[], bannedChampions:[],
+    decks:{1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]},
+    log:[], ts:nowTs()
+  };
+  lastRemoteV = rec.v;
+  try{ await SYNC.put(rec); }catch(e){ /* will retry next poll */ }
+}
+
+function startPolling(){
+  if(!SYNC.live) return;
+  clearInterval(pollTimer);
+  pollTimer = setInterval(pollOnce, CONFIG.sync.pollMs);
+}
+async function pollOnce(){
+  let rec; try{ rec = await SYNC.get(); }catch(e){ return; }
+  if(!rec || typeof rec.v!=='number') return;
+  lastRemoteV = Math.max(lastRemoteV, rec.v);
+
+  if(S && S.mode==='lobby') return handleLobbyPoll(rec);
+
+  if(S && S.pendingChamp) return;             // don't clobber my own region choice
+  if(rec.v > (S ? S.v : 0)){ adoptRecord(rec); render(); }
+}
+async function handleLobbyPoll(rec){
+  if(rec.status==='playing' || rec.status==='done'){
+    adoptRecord(rec); render();
+    if(rec.status==='playing') toast('Match started');
+    return;
+  }
+  // still in lobby: heartbeat my presence (merge with whatever's there)
+  const present = Object.assign({}, rec.present||{});
+  present[ME.id] = nowTs();
+  await writeLobby(present, rec.v);
+  S.present = present;
+  renderLobby();
+  const fresh = freshPresent(present);
+  if(fresh.wad && fresh.challenger && ME.id===INITIATOR){ startMatch(); }
+}
+
+/* ---------- data fetch ---------- */
+function isChampion(c){ return c.supertype==='Champion' && c.collectible && c.rarityRef==='Champion'; }
+function isStandard(c){
+  const fr = (c.formatRefs||c.formats||[]).map(x=>String(x).toLowerCase());
+  return fr.some(x=>x.includes(CONFIG.standardKeyword));
+}
+async function fetchSet(s){
+  const tries = [CONFIG.cdnUrl(s), CONFIG.mirrorUrl(s)];
+  for(const url of tries){
+    try{ const r = await fetch(url, {mode:'cors'}); if(r.ok) return await r.json(); }
+    catch(e){ /* try next */ }
+  }
+  throw new Error('Could not load '+s);
+}
+async function loadData(onProgress){
+  let done=0; const total=CONFIG.sets.length; const all=[];
+  const results = await Promise.all(CONFIG.sets.map(async s=>{
+    let cards=[];
+    try{ cards = await fetchSet(s); }catch(e){ cards=null; }
+    done++; onProgress(done,total);
+    return cards;
+  }));
+  let any=false;
+  results.forEach(cards=>{ if(Array.isArray(cards)){ any=true; all.push(...cards); }});
+  if(!any) throw new Error('NETWORK');
+
+  const byName = new Map();
+  for(const c of all){
+    if(!isChampion(c)) continue;
+    if(!isStandard(c)) continue;
+    const refs = (c.regionRefs||[]).slice();
+    if(refs.some(r=>CONFIG.excludeRegionRefs.includes(r))) continue;
+    if(CONFIG.forceExclude.includes(c.name)) continue;
+    if(byName.has(c.name)) continue;
+    const img = (c.assets && c.assets[0] && c.assets[0].gameAbsolutePath || '').replace(/^http:\/\//,'https://');
+    byName.set(c.name, { name:c.name, code:c.cardCode, regionRefs:[...new Set(refs)], img });
+  }
+  const champions = [...byName.values()].sort((a,b)=>a.name.localeCompare(b.name));
+
+  const present = new Set();
+  champions.forEach(c=>c.regionRefs.forEach(r=>present.add(r)));
+  const regions = CONFIG.regionOrder.filter(r=>present.has(r));
+  champions.forEach(c=>{ c.regionRefs.forEach(r=>{ if(!regions.includes(r)) regions.push(r); }); });
+
+  if(champions.length===0) throw new Error('EMPTY');
+  return { champions, regions };
+}
+
+/* ---------- game helpers ---------- */
+const pairKey = (a,b)=> [a,b].sort().join('+');
+function availableRegions(champ){ return champ.regionRefs.filter(r=>!S.bannedRegions.has(r)); }
+function inPool(champ){
+  return !S.bannedChampions.has(champ.name) && !S.pickedChampions.has(champ.name)
+         && availableRegions(champ).length>0;
+}
+function validRegionsForStep(champ, step){
+  const avail = availableRegions(champ);
+  if(step.s===0) return avail;
+  const c1 = S.decks[step.p][step.d][0];
+  const c1reg = c1 ? c1.region : null;
+  return avail.filter(r=> r!==c1reg && !S.completedPairs[step.p].has(pairKey(c1reg, r)));
+}
+function champSelectable(champ, step){
+  if(step.t==='cban') return inPool(champ);
+  return inPool(champ) && validRegionsForStep(champ, step).length>0;
+}
+function curStep(){ return S.steps[S.stepIndex]; }
+function pname(p){ return p===1 ? S.p1 : S.p2; }
+function myPlayerNum(){ return (S.p1Role===ME.id) ? 1 : 2; }
+function isMyTurn(){
+  if(!S || S.mode!=='game') return false;
+  return curStep().p === myPlayerNum();
+}
+
+/* ---------- mutations ---------- */
+function advance(){
+  S.stepIndex++;
+  if(S.stepIndex>=S.steps.length) S.mode='done';
+  render();
+  pushState();
+}
+function doRegionBan(ref){
+  S.bannedRegions.add(ref);
+  S.log.push(`${pname(curStep().p)} banned region ${regName(ref)}`);
+  advance();
+}
+function doChampBan(champ){
+  S.bannedChampions.add(champ.name);
+  S.log.push(`${pname(curStep().p)} banned ${champ.name}`);
+  advance();
+}
+function commitPick(champ, region){
+  const st = curStep();
+  S.decks[st.p][st.d][st.s] = { name:champ.name, code:champ.code, img:champ.img, region };
+  S.pickedChampions.add(champ.name);
+  if(st.s===1){
+    const c1 = S.decks[st.p][st.d][0];
+    S.completedPairs[st.p].add(pairKey(c1.region, region));
+  }
+  S.log.push(`${pname(st.p)} → Deck ${st.d+1}: ${champ.name} (${regName(region)})`);
+  advance();
+}
+function onPickClick(champ){
+  const st = curStep();
+  const opts = validRegionsForStep(champ, st);
+  if(opts.length<=1){ commitPick(champ, opts[0]); }
+  else { S.pendingChamp = {champ, opts}; render(); }
+}
+
+/* ================================================================= */
+/*  RENDER                                                           */
+/* ================================================================= */
+function render(){
+  const showRestart = S && (S.mode==='game'||S.mode==='done');
+  document.getElementById('btnUndo').style.display = 'none';
+  document.getElementById('btnRestart').style.display = showRestart ? '' : 'none';
+  if(!S || S.mode==='login')   return renderLogin();
+  if(S.mode==='loading')       return renderLoading();
+  if(S.mode==='error')         return renderError();
+  if(S.mode==='config')        return renderConfig();
+  if(S.mode==='lobby')         return renderLobby();
+  if(S.mode==='game')          return renderGame();
+  if(S.mode==='done')          return renderSummary();
+}
+
+/* ---------- login ---------- */
+function renderLogin(){
+  app.innerHTML = `
+    <div class="screen"><div class="panelbox">
+      <h2>Enter access code</h2>
+      <p class="lead">Legends of Runeterra · Pick &amp; Ban draft</p>
+      <div class="field"><label>Access code</label>
+        <input id="code" placeholder="access code" autocomplete="off" spellcheck="false"></div>
+      <button class="btn bigbtn" id="loginBtn">Enter</button>
+      <div id="loginErr" style="display:none;color:var(--danger);font-size:13px;margin-top:12px;text-align:center"></div>
+      <div class="faint" style="margin-top:18px;font-size:12px;text-align:center;line-height:1.5">
+        Sign in, then wait for your opponent to enter their code — the draft starts automatically once both players are connected.
+      </div>
+    </div></div>`;
+  const inp = document.getElementById('code');
+  const go = ()=>tryLogin(inp.value);
+  document.getElementById('loginBtn').onclick = go;
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+  inp.focus();
+}
+async function tryLogin(raw){
+  const code = (raw||'').trim();
+  const who = CONFIG.auth[code];
+  if(!who){
+    const el=document.getElementById('loginErr');
+    if(el){ el.style.display=''; el.textContent='Invalid access code.'; }
+    return;
+  }
+  ME = { id:who.id, name:who.name };
+  SYNC.live = syncConfigured();
+  S = { mode:'loading', prog:0, progTotal:CONFIG.sets.length };
+  render();
+  try{
+    if(!DATA) DATA = await loadData((d,t)=>{ S.prog=d; S.progTotal=t; renderLoading(); });
+  }catch(e){
+    S = {mode:'error', errType:e.message};
+    return render();
+  }
+  if(!SYNC.live){ S = {mode:'config'}; return render(); }
+  enterLobby();
+}
+
+/* ---------- lobby (presence-based, auto-start) ---------- */
+async function enterLobby(){
+  S = { mode:'lobby', present:{} };
+  try{
+    const rec = await SYNC.get();
+    if(rec && typeof rec.v==='number'){
+      lastRemoteV = rec.v;
+      if(rec.status==='playing'){ adoptRecord(rec); startPolling(); return render(); }
+      if(rec.status==='lobby'){
+        const present = Object.assign({}, rec.present||{});
+        present[ME.id] = nowTs();
+        S.present = present;
+        await writeLobby(present, rec.v);
+        const fresh = freshPresent(present);
+        startPolling();
+        if(fresh.wad && fresh.challenger && ME.id===INITIATOR) return startMatch();
+        return render();
+      }
+      // status 'done' / unknown -> fall through to fresh lobby
+    }
+  }catch(e){ /* show lobby anyway */ }
+  const present = {}; present[ME.id] = nowTs();
+  S.present = present;
+  await writeLobby(present, lastRemoteV);
+  startPolling();
+  render();
+}
+function renderLobby(){
+  const present = S.present||{};
+  const fresh = freshPresent(present);
+  const row = (id)=>{
+    const on = !!fresh[id]; const me = id===ME.id;
+    return `<div class="lobby-row ${on?'on':''}">
+        <span class="lstatus">${on?'●':'○'}</span>
+        <span class="lname">${nameOf(id)}${me?' <span class="first-tag" style="border-color:rgba(79,209,197,.5);color:var(--accent)">YOU</span>':''}</span>
+        <span class="lstate">${on?'connected':'waiting…'}</span>
+      </div>`;
+  };
+  const bothNote = (fresh.wad && fresh.challenger)
+     ? `<div class="coin" style="color:var(--good);margin-top:16px;font-size:14px">Both players connected — starting…</div>`
+     : `<div class="coin faint" style="margin-top:16px;font-size:13px">Waiting for ${nameOf(otherId(ME.id))} to enter their code…</div>`;
+  app.innerHTML = `
+    <div class="screen"><div class="panelbox">
+      <h2>Draft room</h2>
+      <p class="lead">Signed in as <b style="color:var(--accent)">${ME.name}</b></p>
+      <div class="lobby-list">${row('wad')}${row('challenger')}</div>
+      <div class="spinner" style="margin:20px auto 0"></div>
+      ${bothNote}
+    </div></div>`;
+}
+function startMatch(){
+  const flip = Math.random()<0.5;
+  const p1Role = flip ? 'wad' : 'challenger';
+  S = {
+    mode:'game', live:SYNC.live, meId:ME.id,
+    v: lastRemoteV,
+    present: {wad:nowTs(), challenger:nowTs()},
+    p1Role, p1:nameOf(p1Role), p2:nameOf(otherId(p1Role)),
+    champions:DATA.champions, regions:DATA.regions,
+    bannedRegions:new Set(), bannedChampions:new Set(), pickedChampions:new Set(),
+    decks:{1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]},
+    completedPairs:{1:new Set(),2:new Set()},
+    steps:buildSteps(), stepIndex:0, pendingChamp:null,
+    log:[`Coin flip: ${nameOf(p1Role)} picks first`],
+  };
+  render();
+  pushState();
+}
+
+/* ---------- loading / error / config ---------- */
+function renderLoading(){
+  const pct = Math.round((S.prog/S.progTotal)*100);
+  app.innerHTML = `
+    <div class="screen"><div class="loadwrap">
+      <div class="spinner"></div>
+      <div class="disp" style="font-size:18px">Loading cards from Data Dragon…</div>
+      <div class="progress"><div class="bar" style="width:${pct}%"></div></div>
+      <div class="faint" style="font-size:12px">${S.prog} / ${S.progTotal} sets</div>
+    </div></div>`;
+}
+function renderError(){
+  const net = S.errType==='NETWORK';
+  app.innerHTML = `
+    <div class="screen"><div class="errbox">
+      <b style="font-family:'Cinzel',serif;font-size:16px">Couldn't load card data.</b><br><br>
+      ${net
+        ? `The browser blocked the request to Data Dragon (typically CORS/sandbox in preview).
+           <b>It works once deployed to GitHub Pages.</b> You can retry — there's a GitHub mirror fallback too.`
+        : `The champion pool came back empty — check the format filter in <code>CONFIG</code>.`}
+      <br><br>
+      <button class="btn" id="retry">Retry</button>
+    </div></div>`;
+  document.getElementById('retry').onclick = ()=>{ S.mode='login'; render(); };
+}
+function renderConfig(){
+  app.innerHTML = `
+    <div class="screen"><div class="errbox" style="border-color:var(--accent-warm);color:#ffe9bd;background:rgba(212,176,74,.07)">
+      <b style="font-family:'Cinzel',serif;font-size:16px">Live sync isn't set up yet.</b><br><br>
+      This is a two-device duel, so it needs a shared store. In <code>CONFIG.sync</code> add your
+      <b>JSONBin Bin ID</b> and <b>Master Key</b>, then reload.<br><br>
+      Create a free bin at jsonbin.io with starting JSON <code>{ "v": 0 }</code>, copy its Bin ID and your Master Key.
+      <br><br>
+      <button class="btn" id="backLogin">Back</button>
+    </div></div>`;
+  document.getElementById('backLogin').onclick = ()=>{ S={mode:'login'}; render(); };
+}
+
+/* ---------- game ---------- */
+function stepInstruction(st){
+  if(st.t==='rban') return {tag:'BAN REGION', cls:'ban', txt:`<b>${pname(st.p)}</b> — ban a region (global for both players)`};
+  if(st.t==='cban') return {tag:'BAN', cls:'ban', txt:`<b>${pname(st.p)}</b> — ban one champion (global)`};
+  const which = st.s===0 ? 'the 1st champion' : 'the 2nd champion';
+  let extra = '';
+  if(st.s===1){
+    const c1 = S.decks[st.p][st.d][0];
+    extra = c1 ? ` <span class="sub">— different region than <b>${regName(c1.region)}</b>, deck combo must be unique</span>` : '';
+  }
+  return {tag:'PICK', cls:'pick', txt:`<b>${pname(st.p)}</b> — pick ${which} into <b>Deck ${st.d+1}</b>${extra}`};
+}
+function renderGame(){
+  const st = curStep();
+  const ins = stepInstruction(st);
+  const myTurn = isMyTurn();
+  const liveChip =
+    `<div class="turn-chip"><span class="dot" style="background:var(--good);box-shadow:0 0 12px var(--good)"></span>${ME.name}</div>
+     <span class="pill ${myTurn?'pick':'ban'}" style="${myTurn?'':'opacity:.85'}">${myTurn?'YOUR TURN':'WAITING'}</span>`;
+  app.innerHTML = `
+    <div class="status">
+      ${liveChip}
+      <div class="turn-chip"><span class="dot p${st.p}"></span>${pname(st.p)}</div>
+      <span class="pill ${ins.cls}">${ins.tag}</span>
+      <div class="instr">${ins.txt}</div>
+      <div class="spacer"></div>
+      <div class="faint" style="font-size:12px">step ${S.stepIndex+1} / ${S.steps.length}</div>
+    </div>
+    <div class="arena">
+      ${playerPanel(1, st)}
+      <div class="mid ${!myTurn ? 'locked' : ''}">
+        ${!myTurn ? `<div class="waitbanner">Waiting for ${pname(st.p)} to ${st.t==='pick'?'pick':'ban'}…</div>`:''}
+        ${banStrip()}
+        ${st.t==='rban' ? regionGrid() : poolGrid(st)}
+        ${logBlock()}
+      </div>
+      ${playerPanel(2, st)}
+    </div>`;
+  if(S.pendingChamp) renderRegionModal();
+}
+function playerPanel(p, st){
+  const active = st.p===p && (st.t!=='rban');
+  const isFirst = (p===1);
+  const isMe = (myPlayerNum()===p);
+  const decksHtml = S.decks[p].map((deck,di)=>{
+    const c1=deck[0], c2=deck[1];
+    let pairTxt='';
+    if(c1&&c2) pairTxt = `${regName(c1.region)} + ${regName(c2.region)}`;
+    else if(c1) pairTxt = regName(c1.region)+' + …';
+    const slotsHtml = deck.map((slot,si)=>{
+      const isTarget = active && st.t==='pick' && st.d===di && st.s===si;
+      if(slot) return `<div class="slot">${miniCard(slot)}</div>`;
+      return `<div class="slot ${isTarget?'target':''}">
+        <div class="ph"><span class="num">${si+1}</span>${si===0?'1st champ':'2nd champ'}</div></div>`;
+    }).join('');
+    return `<div class="deck">
+        <div class="dh"><span class="dl">DECK ${di+1}</span><span class="pair">${pairTxt}</span></div>
+        <div class="slots">${slotsHtml}</div>
+      </div>`;
+  }).join('');
+  return `<div class="pside p${p} ${active?'active':''}">
+      <div class="edge"></div>
+      <h2><span class="dot p${p}"></span>${pname(p)} ${isMe?'<span class="first-tag" style="border-color:rgba(79,209,197,.5);color:var(--accent)">YOU</span>':''} ${isFirst?'<span class="first-tag">FIRST PICK</span>':''}</h2>
+      <div class="decks">${decksHtml}</div>
+    </div>`;
+}
+function miniCard(slot){
+  return `<div class="mini">
+      <div class="mreg" style="background:${regColor(slot.region)}"></div>
+      <img src="${slot.img}" alt="${slot.name}" onerror="this.parentNode.innerHTML='<div class=\\'imgfail\\'>${slot.name}</div>'">
+      <span class="rtag" style="color:${regColor(slot.region)}">${regName(slot.region)}</span>
+      <span class="mname">${slot.name}</span>
+    </div>`;
+}
+function banStrip(){
+  const regBans = [...S.bannedRegions].map(r=>
+    `<span class="rchip"><span class="sw" style="background:${regColor(r)}"></span>${regName(r)}</span>`).join('');
+  const champBans = [...S.bannedChampions].map(n=>{
+    const c = S.champions.find(x=>x.name===n);
+    return `<span class="cban-chip">${c?`<img src="${c.img}" onerror="this.style.display='none'">`:''}${n}</span>`;
+  }).join('');
+  return `<div class="banstrip">
+      <div class="banbox"><div class="lbl">Banned regions</div>
+        <div class="banchips">${regBans||'<span class="empty-note">none yet</span>'}</div></div>
+      <div class="banbox"><div class="lbl">Banned champions</div>
+        <div class="banchips">${champBans||'<span class="empty-note">none yet</span>'}</div></div>
+    </div>`;
+}
+function regionGrid(){
+  const tiles = S.regions.filter(r=>!S.bannedRegions.has(r)).map(r=>{
+    const n = S.champions.filter(c=>inPool(c) && availableRegions(c).includes(r)).length;
+    return `<div class="region-tile" data-region="${r}">
+        <div class="bar" style="background:${regColor(r)}"></div>
+        <div class="glow" style="background:radial-gradient(circle at 30% 20%, ${regColor(r)}, transparent 70%)"></div>
+        <div class="rn">${regName(r)}</div>
+        <div class="rc">${n} champions in pool</div>
+      </div>`;
+  }).join('');
+  return `<div class="poolhead"><h3>Pick a region to ban</h3>
+      <span class="hint">ban is global · multi-region champions stay playable as their other region</span></div>
+    <div class="region-grid">${tiles}</div>`;
+}
+function poolGrid(st){
+  const isBan = st.t==='cban';
+  const pool = S.champions.filter(inPool);
+  const cards = pool.map(c=>{
+    const ok = champSelectable(c, st);
+    const avail = availableRegions(c);
+    const dots = avail.map(r=>`<span class="d" style="background:${regColor(r)}" title="${regName(r)}"></span>`).join('');
+    const multi = avail.length>1 ? `<span class="multi">MULTI</span>` : '';
+    let title = c.name;
+    if(!ok && st.s===1){
+      const c1=S.decks[st.p][st.d][0];
+      title = `Not allowed: must be a different region than ${c1?regName(c1.region):''} and can't repeat an existing combo`;
+    }
+    return `<div class="card ${ok?'sel':'dim'} ${isBan?'ban':''}" ${ok?`data-champ="${c.name}"`:''} title="${title}">
+        <img src="${c.img}" alt="${c.name}" onerror="this.parentNode.innerHTML='<div class=\\'imgfail\\'>${c.name}</div>'">
+        <div class="regs">${dots}</div>${multi}
+        <div class="nm">${c.name}</div>
+      </div>`;
+  }).join('');
+  const head = isBan
+    ? `<h3>Pick a champion to ban</h3><span class="count">${pool.length} in pool</span>`
+    : `<h3>Pick a champion</h3><span class="count">${pool.length} in pool</span>
+       <span class="hint">${st.s===1?'only champions forming an allowed combo are lit':'multi-region = choose the region after picking'}</span>`;
+  return `<div class="poolhead">${head}</div><div class="pool">${cards}</div>`;
+}
+function logBlock(){
+  const rows = S.log.slice(-12).map((l,i,arr)=>{
+    const realIdx = S.log.length-arr.length+i+1;
+    return `<div class="row"><span class="n">${realIdx}.</span><span>${l}</span></div>`;
+  }).reverse().join('');
+  return `<div class="log"><h4>History</h4>${rows}</div>`;
+}
+function renderRegionModal(){
+  const {champ, opts} = S.pendingChamp;
+  const st = curStep();
+  const optsHtml = opts.map(r=>`
+    <div class="reg-opt" data-pickregion="${r}">
+      <span class="sw" style="background:${regColor(r)}"></span>
+      <span class="ro-name">${regName(r)}</span>
+    </div>`).join('');
+  const ov = document.createElement('div');
+  ov.className='overlay'; ov.id='regOverlay';
+  ov.innerHTML = `<div class="modal">
+      <h3>Which region will you play ${champ.name} as?</h3>
+      <div class="who">${pname(st.p)} · Deck ${st.d+1} · ${st.s===0?'1st champion':'2nd champion'}</div>
+      <div class="champrow">
+        <img src="${champ.img}" onerror="this.style.display='none'">
+        <span class="cn">${champ.name}</span>
+      </div>
+      <div class="reg-opts">${optsHtml}</div>
+    </div>`;
+  ov.addEventListener('click',(e)=>{ if(e.target===ov){ S.pendingChamp=null; render(); }});
+  document.body.appendChild(ov);
+}
+
+/* ---------- summary ---------- */
+function renderSummary(){
+  const panel = (p)=>{
+    const decks = S.decks[p].map((deck,di)=>{
+      const slots = deck.map(s=>`<div class="slot">${s?miniCard(s):''}</div>`).join('');
+      const pair = `${regName(deck[0].region)} + ${regName(deck[1].region)}`;
+      return `<div class="sum-deck"><div class="sum-slots">${slots}</div><div class="sp">DECK ${di+1} · ${pair}</div></div>`;
+    }).join('');
+    return `<div class="pside p${p}"><div class="edge"></div>
+        <h2><span class="dot p${p}"></span>${pname(p)} ${p===1?'<span class="first-tag">FIRST PICK</span>':''}</h2>
+        <div class="sum-decks">${decks}</div></div>`;
+  };
+  app.innerHTML = `
+    <div class="status"><span class="pill pick">DONE</span>
+      <div class="instr">Draft complete — 3 decks for each player.</div>
+      <div class="spacer"></div>
+      <button class="btn warm" id="copyBtn">Copy summary</button>
+    </div>
+    <div class="board">${panel(1)}${panel(2)}</div>
+    ${banStrip()}
+    ${logBlock()}`;
+  document.getElementById('copyBtn').onclick = copySummary;
+}
+function copySummary(){
+  const fmt = (p)=> S.decks[p].map((d,i)=>
+    `  Deck ${i+1}: ${d[0].name} (${regName(d[0].region)}) + ${d[1].name} (${regName(d[1].region)})`).join('\n');
+  const txt =
+`LoR Draft\nFirst pick: ${S.p1}\n\n${S.p1}:\n${fmt(1)}\n\n${S.p2}:\n${fmt(2)}\n\n`+
+`Banned regions: ${[...S.bannedRegions].map(regName).join(', ')||'—'}\n`+
+`Banned champions: ${[...S.bannedChampions].join(', ')||'—'}`;
+  navigator.clipboard?.writeText(txt).then(
+    ()=>toast('Copied to clipboard ✓'),
+    ()=>toast('Clipboard unavailable'));
+}
+
+/* ---------- toast ---------- */
+function toast(msg){
+  const t=document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(),2200);
+}
+
+/* ================================================================= */
+/*  EVENT DELEGATION                                                 */
+/* ================================================================= */
+document.addEventListener('click',(e)=>{
+  if(!S || S.mode!=='game') return;
+  if(!isMyTurn()) return;                       // not your turn in the live duel
+  const st = curStep();
+  const regTile = e.target.closest('[data-region]');
+  if(regTile && st.t==='rban'){ return doRegionBan(regTile.dataset.region); }
+  const pickReg = e.target.closest('[data-pickregion]');
+  if(pickReg && S.pendingChamp){
+    const champ = S.pendingChamp.champ; S.pendingChamp=null;
+    document.getElementById('regOverlay')?.remove();
+    return commitPick(champ, pickReg.dataset.pickregion);
+  }
+  const card = e.target.closest('[data-champ]');
+  if(card){
+    const champ = S.champions.find(c=>c.name===card.dataset.champ);
+    if(!champ || !champSelectable(champ, st)) return;
+    if(st.t==='cban') return doChampBan(champ);
+    if(st.t==='pick') return onPickClick(champ);
+  }
+});
+document.getElementById('btnRestart').onclick = ()=>{
+  if(!confirm('Start a brand-new match? This resets the draft for both players.')) return;
+  S.pendingChamp=null; document.getElementById('regOverlay')?.remove();
+  startMatch();
+};
+
+/* boot */
+S = {mode:'login'};
+render();
+
+</script>
+</body>
+</html>
