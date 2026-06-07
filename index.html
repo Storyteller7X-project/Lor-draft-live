@@ -334,17 +334,18 @@ const CONFIG = {
        4. Paste your Master Key into  key  below */
   sync: {
     provider: 'jsonbin',
-    binId: '6a254c89da38895dfe945d48',
-    key:   '$2a$10$E6jHqDmrrbm4XR04be95JeHRXQw1igKVTz7USE/1uKR3C1qFMJN.W',
-    // adaptive polling (free JSONBin = 1 req/s on the shared key, so only the
-    // waiting side polls, and not too fast)
-    pollWaitMs: 1500,   // while waiting for the opponent's move
-    pollIdleMs: 4000,   // on your own turn / after the draft (watch for "New match")
-    pollLobbyMs: 3000,  // in the waiting room
-    lobbyBeatMs: 6000,  // how often to refresh own presence in lobby
+    binId: '6a25c602da38895dfe963083',
+    key:   '$2a$10$s3WRXLzA1cLMTGfehHOWOuvhJPkhpWdpZgHpxZu7gIabpP7/hLGPO',
+    keyHeader: 'X-Master-Key',   // use 'X-Access-Key' if you put a scoped Access Key in `key` above
+    // adaptive polling (only the waiting side polls; paused when the tab is in
+    // the background). Intervals tuned to minimise JSONBin request usage.
+    pollWaitMs: 2500,    // while waiting for the opponent's move
+    pollIdleMs: 15000,   // on your own turn / after the draft (just catches "New match")
+    pollLobbyMs: 4000,   // in the waiting room
+    lobbyBeatMs: 12000,  // how often to refresh own presence in lobby
   },
 
-  presenceTtlMs: 30000,   // a player is "connected" if seen within this window
+  presenceTtlMs: 40000,   // a player is "connected" if seen within this window
 };
 const regColor = (ref)=>getComputedStyle(document.documentElement).getPropertyValue('--r-'+ref).trim() || '#888';
 const regName  = (ref)=>CONFIG.regionNames[ref]||ref;
@@ -388,8 +389,13 @@ const app = document.getElementById('app');
 const SYNC = {
   live:false,
   base:'https://api.jsonbin.io/v3/b/',
+  authHeaders(extra){
+    const h = Object.assign({}, extra||{});
+    h[CONFIG.sync.keyHeader || 'X-Master-Key'] = CONFIG.sync.key;
+    return h;
+  },
   async get(){
-    const r = await fetch(this.base+CONFIG.sync.binId+'/latest', { headers:{'X-Master-Key':CONFIG.sync.key} });
+    const r = await fetch(this.base+CONFIG.sync.binId+'/latest', { headers:this.authHeaders() });
     if(!r.ok) throw new Error('GET '+r.status);
     const j = await r.json();
     return j.record;
@@ -397,7 +403,7 @@ const SYNC = {
   async put(rec){
     const r = await fetch(this.base+CONFIG.sync.binId, {
       method:'PUT',
-      headers:{'Content-Type':'application/json','X-Master-Key':CONFIG.sync.key,'X-Bin-Versioning':'false'},
+      headers:this.authHeaders({'Content-Type':'application/json','X-Bin-Versioning':'false'}),
       body:JSON.stringify(rec)
     });
     if(!r.ok) throw new Error('PUT '+r.status);
@@ -491,7 +497,13 @@ function startPolling(){
   if(!SYNC.live) return;
   scheduleTick(0);
 }
+document.addEventListener('visibilitychange', ()=>{
+  if(!SYNC.live || !S) return;
+  if(document.hidden){ stopPolling(); }
+  else if(S.mode==='lobby' || S.mode==='game' || S.mode==='done'){ scheduleTick(0); }
+});
 async function tick(){
+  if(document.hidden){ stopPolling(); return; }   // paused in background — saves requests
   let next = CONFIG.sync.pollIdleMs;
   try{
     if(S && S.mode==='lobby')      next = await lobbyTick();
@@ -541,7 +553,7 @@ function isStandard(c){
   return fr.some(x=>x.includes(CONFIG.standardKeyword));
 }
 async function fetchSet(s){
-  const tries = [CONFIG.cdnUrl(s), CONFIG.mirrorUrl(s)];
+  const tries = [CONFIG.mirrorUrl(s), CONFIG.cdnUrl(s)];
   for(const url of tries){
     try{ const r = await fetch(url, {mode:'cors'}); if(r.ok) return await r.json(); }
     catch(e){ /* try next */ }
