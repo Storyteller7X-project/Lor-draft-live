@@ -341,7 +341,7 @@ const CONFIG = {
     // the background). Intervals tuned to minimise JSONBin request usage.
     pollWaitMs: 2500,    // while waiting for the opponent's move
     pollIdleMs: 15000,   // on your own turn / after the draft (just catches "New match")
-    pollLobbyMs: 4000,   // in the waiting room
+    pollLobbyMs: 5000,   // in the waiting room
     lobbyBeatMs: 12000,  // how often to refresh own presence in lobby
   },
 
@@ -788,7 +788,7 @@ async function enterLobby(){
         await writeLobby(present, rec.v);
         lastLobbyBeat = Date.now();
         const fresh = freshPresent(present);
-        startPolling();
+        scheduleTick(CONFIG.sync.pollLobbyMs);   // we just read; next poll after the interval
         if(fresh.wad && fresh.challenger && ME.id===INITIATOR) return startMatch();
         return render();
       }
@@ -799,7 +799,7 @@ async function enterLobby(){
   S.present = present;
   await writeLobby(present, lastRemoteV);
   lastLobbyBeat = Date.now();
-  startPolling();
+  scheduleTick(CONFIG.sync.pollLobbyMs);   // we just wrote; next poll after the interval
   render();
 }
 function renderLobby(){
