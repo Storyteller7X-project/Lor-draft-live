@@ -28,8 +28,8 @@
   --accent-warm:#d4b04a;   /* gold */
   --danger:#e0563f;
   --good:#5dd47f;
-  --p1:#5aa9e6;            /* player 1 hue */
-  --p2:#e6915a;            /* player 2 hue */
+  --p1:#5aa9e6;            /* Blue side (left) */
+  --p2:#e0565a;            /* Red side (right) */
   /* region colors */
   --r-Demacia:#d8bd57;
   --r-Noxus:#c0392b;
@@ -150,8 +150,39 @@ button{font-family:inherit;cursor:pointer}
   border:1px solid rgba(224,86,63,.35);background:rgba(224,86,63,.07)}
 .cban-chip img{width:18px;height:24px;object-fit:cover;border-radius:3px;filter:grayscale(.6)}
 .empty-note{font-size:12px;color:var(--ink-faint);font-style:italic}
+/* per-player bans inside a panel */
+.pbans{margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)}
+.pbans .lbl{font-family:'Cinzel',serif;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--danger);margin-bottom:7px}
+.pside.p2 .pbans .banchips{justify-content:flex-end}
+/* per-action timer */
+.timer{display:flex;align-items:baseline;gap:5px;font-family:'Cinzel',serif;padding:5px 13px;border-radius:9px;
+  border:1px solid var(--line2);background:rgba(0,0,0,.28)}
+.timer .tlabel{font-size:9.5px;letter-spacing:.16em;color:var(--ink-faint);align-self:center}
+.timer #timerVal{font-size:24px;font-weight:600;color:var(--accent);min-width:30px;text-align:right}
+.timer .tsec{font-size:12px;color:var(--ink-dim)}
+.timer.off{opacity:.5;font-size:11px;padding:6px 12px}
+.timer.off #timerVal,.timer.off .tsec,.timer.off .tlabel{display:none}
+.timer.danger{border-color:var(--danger);background:rgba(224,86,63,.12);animation:tblink .7s steps(1) infinite}
+.timer.danger #timerVal{color:var(--danger)}
+@keyframes tblink{50%{opacity:.35;box-shadow:0 0 0 2px rgba(224,86,63,.4)}}
+/* champion search */
+.champsearch{margin-left:auto;background:rgba(0,0,0,.35);border:1px solid var(--line2);color:var(--ink);
+  border-radius:8px;padding:7px 11px;font-size:13px;font-family:inherit;min-width:180px;outline:none}
+.champsearch:focus{border-color:var(--accent)}
+.poolhead .hint + .champsearch{margin-left:12px}
+/* full-log modal */
+.btn.ghost{background:transparent;border-color:var(--line2);color:var(--ink-dim)}
+.btn.ghost:hover{color:var(--ink);border-color:var(--accent)}
+.btn.mini{padding:6px 12px;font-size:12px}
+.modal.loglist{max-width:560px;width:92vw}
+.fl-list{max-height:60vh;overflow:auto;display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.fl-row{display:flex;gap:10px;padding:6px 9px;border-radius:6px;font-size:13px;align-items:baseline}
+.fl-row .fl-n{color:var(--ink-faint);font-family:'Cinzel',serif;font-size:11px;min-width:30px}
+.fl-row.done{background:rgba(255,255,255,.03);color:var(--ink)}
+.fl-row:not(.done){color:var(--ink-dim)}
+.fl-row.cur{border:1px solid var(--accent);background:rgba(79,209,197,.08)}
 
-.poolhead{display:flex;align-items:baseline;gap:12px;margin:2px 2px 10px}
+.poolhead{display:flex;align-items:baseline;gap:12px;margin:2px 2px 10px;flex-wrap:wrap}
 .poolhead h3{font-size:14px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);margin:0}
 .poolhead .count{font-size:12px;color:var(--ink-faint)}
 .poolhead .hint{margin-left:auto;font-size:12px;color:var(--accent-warm)}
@@ -197,6 +228,9 @@ button{font-family:inherit;cursor:pointer}
 .reg-opt.disabled{opacity:.4;cursor:not-allowed;background:rgba(0,0,0,.15)}
 .reg-opt.disabled:hover{border-color:var(--line2);transform:none}
 .reg-opt .ro-reason{margin-left:auto;font-size:10.5px;color:var(--ink-dim);font-style:italic;text-align:right}
+.reg-opt.mono-opt{border-color:rgba(79,209,197,.55);background:rgba(79,209,197,.07)}
+.reg-opt.mono-opt:hover{border-color:var(--accent)}
+.reg-opt.mono-opt .faint{margin-left:auto;text-align:right;color:var(--ink-dim);font-style:italic}
 
 /* ---------- setup / loading / summary ---------- */
 .screen{display:flex;align-items:center;justify-content:center;min-height:62vh}
@@ -346,6 +380,10 @@ const CONFIG = {
   },
 
   presenceTtlMs: 40000,   // a player is "connected" if seen within this window
+
+  timerMs: 50000,         // per-action clock for champion bans and picks (region bans have none)
+  timerWarnMs: 10000,     // blink red under this remaining time
+  timerFallbackMs: 12000, // if the active player never acts, the opponent enforces after this grace
 };
 const regColor = (ref)=>getComputedStyle(document.documentElement).getPropertyValue('--r-'+ref).trim() || '#888';
 const regName  = (ref)=>CONFIG.regionNames[ref]||ref;
@@ -361,16 +399,19 @@ function mergeNames(src){ if(!src) return; for(const k in src){ if(k!==(ME&&ME.i
    DRAFT ORDER  (exactly per spec)
    ================================================================= */
 function buildSteps(){
+  // p1 = Blue side (left, starts), p2 = Red side (right)
   return [
-    {t:'rban', p:1}, {t:'rban', p:2},
-    {t:'cban', p:1}, {t:'cban', p:2},
-    {t:'pick', p:2, d:0, s:0},{t:'pick', p:1, d:0, s:0},{t:'pick', p:2, d:1, s:0},
-    {t:'cban', p:2}, {t:'cban', p:1},
-    {t:'pick', p:1, d:1, s:0},{t:'pick', p:2, d:2, s:0},{t:'pick', p:1, d:2, s:0},
-    {t:'cban', p:1}, {t:'cban', p:2},
-    {t:'pick', p:2, d:0, s:1},{t:'pick', p:1, d:0, s:1},{t:'pick', p:2, d:1, s:1},
-    {t:'cban', p:1}, {t:'cban', p:2},
-    {t:'pick', p:1, d:1, s:1},{t:'pick', p:2, d:2, s:1},{t:'pick', p:1, d:2, s:1},
+    {t:'rban', p:1}, {t:'rban', p:2},                                  // 1 Blue / 2 Red — ban region
+    {t:'cban', p:1}, {t:'cban', p:2},                                  // 3 Blue / 4 Red — ban champion
+    {t:'pick', p:2, d:0, s:0},{t:'pick', p:1, d:0, s:0},               // 5 Red / 6 Blue — 1st champ, deck 1
+    {t:'pick', p:1, d:1, s:0},{t:'pick', p:2, d:1, s:0},               // 7 Blue / 8 Red — 1st champ, deck 2
+    {t:'cban', p:2}, {t:'cban', p:1},                                  // 9 Red / 10 Blue — ban champion
+    {t:'pick', p:1, d:2, s:0},{t:'pick', p:2, d:2, s:0},               // 11 Blue / 12 Red — 1st champ, deck 3
+    {t:'cban', p:1}, {t:'cban', p:2},                                  // 13 Blue / 14 Red — ban champion
+    {t:'pick', p:2, d:0, s:1},{t:'pick', p:1, d:0, s:1},               // 15 Red / 16 Blue — 2nd champ, deck 1
+    {t:'pick', p:1, d:1, s:1},{t:'pick', p:2, d:1, s:1},               // 17 Blue / 18 Red — 2nd champ, deck 2
+    {t:'cban', p:2}, {t:'cban', p:1},                                  // 19 Red / 20 Blue — ban champion
+    {t:'pick', p:1, d:2, s:1},{t:'pick', p:2, d:2, s:1},               // 21 Blue / 22 Red — 2nd champ, deck 3
   ];
 }
 
@@ -378,6 +419,8 @@ function buildSteps(){
 let DATA = null;
 let S = null;
 let ME = null;
+let POOL_SEARCH = '';      // local pool filter text (not synced)
+let lastTimeoutStep = -1;  // guards one-shot timer enforcement per step
 let lastRemoteV = 0;
 let pollTimer = null;
 let lastLobbyBeat = 0;
@@ -437,8 +480,11 @@ function toRecord(){
     stepIndex: S.stepIndex,
     bannedRegions: [...S.bannedRegions],
     bannedChampions: [...S.bannedChampions],
+    regBansBy: S.regBansBy || {1:[],2:[]},
+    champBansBy: S.champBansBy || {1:[],2:[]},
+    deadline: S.deadline || null,
     decks: S.decks,
-    log: S.log.slice(-16),
+    log: S.log.slice(-30),
     ts: nowTs(),
   };
 }
@@ -459,6 +505,10 @@ function adoptRecord(rec){
   S.stepIndex = rec.stepIndex;
   S.bannedRegions   = new Set(rec.bannedRegions||[]);
   S.bannedChampions = new Set(rec.bannedChampions||[]);
+  S.regBansBy   = rec.regBansBy   || {1:[],2:[]};
+  S.champBansBy = rec.champBansBy || {1:[],2:[]};
+  S.deadline    = rec.deadline || null;
+  POOL_SEARCH = '';
   S.decks     = rec.decks || {1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]};
   S.log       = rec.log || [];
   S.pending = null;
@@ -581,9 +631,9 @@ async function loadData(onProgress){
     if(CONFIG.forceExclude.includes(c.name)) continue;
     if(byName.has(c.name)) continue;
     const img = (c.assets && c.assets[0] && c.assets[0].gameAbsolutePath || '').replace(/^http:\/\//,'https://');
-    byName.set(c.name, { name:c.name, code:c.cardCode, regionRefs:[...new Set(refs)], img });
+    byName.set(c.name, { name:c.name, code:c.cardCode, regionRefs:[...new Set(refs)], img, cost:(typeof c.cost==='number'?c.cost:99) });
   }
-  const champions = [...byName.values()].sort((a,b)=>a.name.localeCompare(b.name));
+  const champions = [...byName.values()].sort((a,b)=> (a.cost-b.cost) || a.name.localeCompare(b.name));
 
   const present = new Set();
   champions.forEach(c=>c.regionRefs.forEach(r=>present.add(r)));
@@ -621,6 +671,16 @@ function usedPairKeys(p, exceptDeck){
   return s;
 }
 function nonBannedRegions(){ return S.regions.filter(r=>!S.bannedRegions.has(r)); }
+/* a deck is mono-region when both champs share a region and no 2nd region was chosen */
+function isMonoDeck(deck){
+  return deck[0] && deck[1] && deck[0].region===deck[1].region && !deck[1].region2;
+}
+/* how many of this player's OTHER decks are mono-region (lineup allows only one) */
+function monoDeckCount(p, exceptDeck){
+  let n=0;
+  S.decks[p].forEach((deck,di)=>{ if(di!==exceptDeck && isMonoDeck(deck)) n++; });
+  return n;
+}
 /* second regions available for a same-region deck (no champion provides them) */
 function freeSecondRegions(p, d, sharedReg){
   const used = usedPairKeys(p, d);
@@ -633,7 +693,8 @@ function valid2ndRegions(champ, step){
   const used = usedPairKeys(step.p, step.d);
   return avail.filter(r=>{
     if(r!==c1reg) return !used.has(pairKey(c1reg, r));             // distinct-region deck: pair must be unique
-    return freeSecondRegions(step.p, step.d, c1reg).length>0;      // same region: a free 2nd region must exist
+    // same region: valid if it can be mono (no other mono deck yet) OR a free 2nd region exists
+    return monoDeckCount(step.p, step.d)===0 || freeSecondRegions(step.p, step.d, c1reg).length>0;
   });
 }
 function champSelectable(champ, step){
@@ -653,30 +714,39 @@ function isMyTurn(){
 /* ---------- mutations ---------- */
 function advance(){
   S.stepIndex++;
-  if(S.stepIndex>=S.steps.length) S.mode='done';
+  POOL_SEARCH = '';
+  if(S.stepIndex>=S.steps.length){ S.mode='done'; S.deadline=null; }
+  else { const ns = curStep(); S.deadline = (ns.t==='cban'||ns.t==='pick') ? Date.now()+CONFIG.timerMs : null; }
+  lastTimeoutStep = -1;
   render();
   pushState();
 }
 function doRegionBan(ref){
+  const p = curStep().p;
   S.bannedRegions.add(ref);
-  S.log.push(`${pname(curStep().p)} banned region ${regName(ref)}`);
+  (S.regBansBy[p] = S.regBansBy[p]||[]).push(ref);
+  S.log.push(`${pname(p)} banned region ${regName(ref)}`);
   advance();
 }
 function doChampBan(champ){
+  const p = curStep().p;
   S.bannedChampions.add(champ.name);
-  S.log.push(`${pname(curStep().p)} banned ${champ.name}`);
+  (S.champBansBy[p] = S.champBansBy[p]||[]).push(champ.name);
+  S.log.push(`${pname(p)} banned ${champ.name}`);
   advance();
 }
-function commitPick(champ, region, region2){
+function commitPick(champ, region, region2, auto){
   const st = curStep();
   const slot = { name:champ.name, code:champ.code, img:champ.img, region };
   if(st.s===1 && region2) slot.region2 = region2;        // deck's 2nd region for a same-region deck
   S.decks[st.p][st.d][st.s] = slot;
   S.pickedChampions.add(champ.name);
-  const regTxt = (st.s===1 && region2)
-    ? `${regName(region)} +${regName(region2)}`
-    : regName(region);
-  S.log.push(`${pname(st.p)} → Deck ${st.d+1}: ${champ.name} (${regTxt})`);
+  let regTxt = regName(region);
+  if(st.s===1){
+    if(region2) regTxt = `${regName(region)} +${regName(region2)}`;
+    else if(S.decks[st.p][st.d][0].region === region) regTxt = `${regName(region)} (Mono)`;
+  }
+  S.log.push(`${pname(st.p)} → Deck ${st.d+1}: ${champ.name} (${regTxt})${auto?' (auto · time)':''}`);
   advance();
 }
 function onPickClick(champ){
@@ -699,12 +769,112 @@ function onPickClick(champ){
 function chooseC2Region(champ, c2region){
   const st = curStep();
   const c1reg = S.decks[st.p][st.d][0].region;
-  if(c2region !== c1reg) return commitPick(champ, c2region);   // distinct regions → done
-  // same region → player must pick the deck's second region
-  const opts = freeSecondRegions(st.p, st.d, c1reg);
-  if(opts.length<=1) return commitPick(champ, c2region, opts[0]);
-  S.pending = {kind:'deckSecond', champ, c2region, opts};
+  if(c2region !== c1reg) return commitPick(champ, c2region);   // distinct regions → dual deck, done
+  // same region → choose: keep it MONO (max one per lineup) or add a 2nd region
+  const monoOk = monoDeckCount(st.p, st.d) === 0;
+  const seconds = freeSecondRegions(st.p, st.d, c1reg);
+  const total = (monoOk ? 1 : 0) + seconds.length;
+  if(total === 1){
+    if(monoOk && seconds.length===0) return commitPick(champ, c2region, null);  // only option: mono
+    return commitPick(champ, c2region, seconds[0]);                              // only option: one 2nd region
+  }
+  S.pending = {kind:'deckSecond', champ, c2region, opts:seconds, monoOk};
   render();
+}
+
+/* ---------- per-action timer (champion bans + picks) ---------- */
+function timeLeftMs(){ return (S && S.deadline) ? (S.deadline - Date.now()) : null; }
+function tickTimer(){
+  if(!S || S.mode!=='game' || !S.deadline) return;
+  const remMs = S.deadline - Date.now();
+  const wrap = document.getElementById('timerWrap');
+  if(wrap){
+    const secs = Math.max(0, Math.ceil(remMs/1000));
+    const val = document.getElementById('timerVal');
+    if(val) val.textContent = secs;
+    wrap.classList.toggle('danger', remMs <= CONFIG.timerWarnMs);
+  }
+  if(remMs > 0) return;
+  if(lastTimeoutStep === S.stepIndex) return;        // already handled locally
+  if(isMyTurn()){
+    lastTimeoutStep = S.stepIndex;
+    enforceTimeout();
+  } else if(Date.now() > S.deadline + CONFIG.timerFallbackMs){
+    // active player never acted (likely away) — enforce on their behalf after a grace
+    const stepAtCheck = S.stepIndex;
+    lastTimeoutStep = stepAtCheck;
+    pullIfNewer().then(()=>{
+      if(S && S.mode==='game' && S.stepIndex===stepAtCheck && S.deadline && Date.now()>S.deadline) enforceTimeout();
+    }).catch(()=>{});
+  }
+}
+function enforceTimeout(){
+  const st = curStep();
+  S.pending = null; document.getElementById('regOverlay')?.remove();
+  if(st.t==='cban'){
+    S.log.push(`${pname(st.p)} — time expired, no champion banned`);
+    return advance();
+  }
+  if(st.t==='pick') return autoPick(st);
+}
+/* random but rules-legal pick for a player who ran out of time */
+function autoPick(st){
+  const cands = S.champions.filter(c=>champSelectable(c, st));
+  if(!cands.length){ S.log.push(`${pname(st.p)} — time expired, no legal pick available`); return advance(); }
+  const champ = cands[Math.floor(Math.random()*cands.length)];
+  if(st.s===0){
+    const regs = availableRegions(champ);
+    return commitPick(champ, regs[Math.floor(Math.random()*regs.length)], undefined, true);
+  }
+  const c1reg = S.decks[st.p][st.d][0].region;
+  const valid = valid2ndRegions(champ, st);
+  const distinct = valid.filter(r=>r!==c1reg);
+  if(distinct.length) return commitPick(champ, distinct[Math.floor(Math.random()*distinct.length)], null, true);
+  if(monoDeckCount(st.p, st.d)===0) return commitPick(champ, c1reg, null, true);       // mono
+  return commitPick(champ, c1reg, freeSecondRegions(st.p, st.d, c1reg)[0], true);       // forced 2nd region
+}
+setInterval(tickTimer, 250);
+
+/* ---------- pool search (local, not synced) ---------- */
+function applyPoolFilter(){
+  const q = POOL_SEARCH;
+  document.querySelectorAll('#poolWrap .card').forEach(card=>{
+    const name = card.dataset.cname || '';
+    card.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
+}
+function wireupPool(){
+  const si = document.getElementById('champSearch');
+  if(!si) return;
+  si.value = POOL_SEARCH;
+  si.oninput = ()=>{ POOL_SEARCH = si.value.toLowerCase().trim(); applyPoolFilter(); };
+  applyPoolFilter();
+}
+
+/* ---------- full draft order / log ---------- */
+function planLabel(st){
+  if(st.t==='rban') return 'ban region';
+  if(st.t==='cban') return 'ban champion';
+  return st.s===0 ? 'pick 1st champion' : 'pick 2nd champion';
+}
+function showFullLog(){
+  document.getElementById('logOverlay')?.remove();
+  const rows = S.steps.map((st,i)=>{
+    const done = (i+1) < S.log.length;     // S.log[0] is the coin flip; step i result is S.log[i+1]
+    const cur = (i===S.stepIndex && S.mode==='game');
+    const text = done ? S.log[i+1] : `${pname(st.p)} — ${planLabel(st)}`;
+    return `<div class="fl-row ${done?'done':''} ${cur?'cur':''}"><span class="fl-n">#${i+1}</span><span class="fl-t">${text}</span></div>`;
+  }).join('');
+  const ov = document.createElement('div');
+  ov.className='overlay'; ov.id='logOverlay';
+  ov.innerHTML = `<div class="modal loglist">
+      <h3>Full draft order</h3>
+      <div class="who">${S.log[0]||'Draft order — same sequence for every match'}</div>
+      <div class="fl-list">${rows}</div>
+      <button class="btn" data-closelog style="margin-top:14px">Close</button>
+    </div>`;
+  ov.addEventListener('click',(e)=>{ if(e.target===ov) ov.remove(); });
+  document.body.appendChild(ov);
 }
 
 /* ================================================================= */
@@ -835,9 +1005,10 @@ function startMatch(){
     p1Role,
     champions:DATA.champions, regions:DATA.regions,
     bannedRegions:new Set(), bannedChampions:new Set(), pickedChampions:new Set(),
+    regBansBy:{1:[],2:[]}, champBansBy:{1:[],2:[]}, deadline:null,
     decks:{1:[[null,null],[null,null],[null,null]],2:[[null,null],[null,null],[null,null]]},
     steps:buildSteps(), stepIndex:0, pending:null,
-    log:[`Coin flip: ${nameOf(p1Role)} picks first`],
+    log:[`Sides: ${nameOf(p1Role)} = Blue (starts) · ${nameOf(otherId(p1Role))} = Red`],
   };
   render();
   pushState();
@@ -912,17 +1083,25 @@ function renderGame(){
     ? `<div class="up"><span class="lbl">${lbl}</span><span class="ut">${pname(s.p)} — ${actionText(s,false)}</span></div>`
     : '';
   const upnext = (n1||n2) ? `<div class="upnext">${upRow('next turn', n1)}${upRow('turn after', n2)}</div>` : '';
+  const timed = (st.t==='cban' || st.t==='pick') && S.deadline;
+  const secs = timed ? Math.max(0, Math.ceil((S.deadline-Date.now())/1000)) : 0;
+  const timerHtml = timed
+    ? `<div id="timerWrap" class="timer ${(S.deadline-Date.now())<=CONFIG.timerWarnMs?'danger':''}"><span class="tlabel">TIME</span><span id="timerVal">${secs}</span><span class="tsec">s</span></div>`
+    : `<div class="timer off">no timer</div>`;
   app.innerHTML = `
     <div class="status gamebar">
       <div class="status-top">
         ${liveChip}
         <div class="spacer"></div>
+        <button class="btn ghost mini" data-fulllog>Show full logs</button>
         <div class="faint" style="font-size:12px">step ${S.stepIndex+1} / ${S.steps.length}</div>
       </div>
       <div class="now">
         <span class="dot p${st.p}"></span>
         <span class="pill ${tg.cls}">${tg.tag}</span>
         <span class="now-txt">${actionText(st,true)}</span>
+        <div class="spacer"></div>
+        ${timerHtml}
       </div>
       ${upnext}
     </div>
@@ -930,23 +1109,26 @@ function renderGame(){
       ${playerPanel(1, st)}
       <div class="mid ${!myTurn ? 'locked' : ''}">
         ${!myTurn ? `<div class="waitbanner">Waiting for ${pname(st.p)} to ${st.t==='pick'?'pick':'ban'}…</div>`:''}
-        ${banStrip()}
-        ${st.t==='rban' ? regionGrid() : poolGrid(st)}
+        <div id="poolWrap">${st.t==='rban' ? regionGrid() : poolGrid(st, myTurn)}</div>
         ${logBlock()}
       </div>
       ${playerPanel(2, st)}
     </div>`;
   if(S.pending) renderRegionModal();
+  wireupPool();
 }
 function playerPanel(p, st){
   const active = st.p===p && (st.t!=='rban');
-  const isFirst = (p===1);
+  const sideTag = p===1
+    ? '<span class="first-tag" style="border-color:rgba(90,169,230,.55);color:var(--p1)">BLUE SIDE</span>'
+    : '<span class="first-tag" style="border-color:rgba(224,86,90,.55);color:var(--p2)">RED SIDE</span>';
   const isMe = (myPlayerNum()===p);
   const decksHtml = S.decks[p].map((deck,di)=>{
     const c1=deck[0], c2=deck[1];
     let pairTxt='';
     const dr = deckRegions(deck);
     if(dr.length===2) pairTxt = `${regName(dr[0])} + ${regName(dr[1])}`;
+    else if(isMonoDeck(deck)) pairTxt = `Mono ${regName(dr[0])}`;
     else if(dr.length===1) pairTxt = regName(dr[0])+' + …';
     const slotsHtml = deck.map((slot,si)=>{
       const isTarget = active && st.t==='pick' && st.d===di && st.s===si;
@@ -959,10 +1141,20 @@ function playerPanel(p, st){
         <div class="slots">${slotsHtml}</div>
       </div>`;
   }).join('');
+  const regB = (S.regBansBy && S.regBansBy[p] || []).map(r=>
+    `<span class="rchip"><span class="sw" style="background:${regColor(r)}"></span>${regName(r)}</span>`).join('');
+  const champB = (S.champBansBy && S.champBansBy[p] || []).map(n=>{
+    const c = S.champions.find(x=>x.name===n);
+    return `<span class="cban-chip">${c?`<img src="${c.img}" onerror="this.style.display='none'">`:''}${n}</span>`;
+  }).join('');
+  const bansHtml = (regB||champB)
+    ? `<div class="pbans"><div class="lbl">Bans by ${pname(p)}</div><div class="banchips">${regB}${champB}</div></div>`
+    : '';
   return `<div class="pside p${p} ${active?'active':''}">
       <div class="edge"></div>
-      <h2><span class="dot p${p}"></span>${pname(p)} ${isMe?'<span class="first-tag" style="border-color:rgba(79,209,197,.5);color:var(--accent)">YOU</span>':''} ${isFirst?'<span class="first-tag">FIRST PICK</span>':''}</h2>
+      <h2><span class="dot p${p}"></span>${pname(p)} ${isMe?'<span class="first-tag" style="border-color:rgba(79,209,197,.5);color:var(--accent)">YOU</span>':''} ${sideTag}</h2>
       <div class="decks">${decksHtml}</div>
+      ${bansHtml}
     </div>`;
 }
 function miniCard(slot){
@@ -999,24 +1191,27 @@ function regionGrid(){
       <span class="hint">ban is global · multi-region champions stay playable as their other region</span></div>
     <div class="region-grid">${tiles}</div>`;
 }
-function poolGrid(st){
+function poolGrid(st, myTurn){
   const isBan = st.t==='cban';
   const pool = S.champions.filter(inPool);
   const cards = pool.map(c=>{
     const ok = champSelectable(c, st);
-    let title = c.name;
+    let title = c.name + (typeof c.cost==='number' && c.cost<99 ? ` · ${c.cost} mana` : '');
     if(!ok && st.s===1){
       title = `Not allowed — every region pairing this champion could form is already used by another of your decks`;
     }
-    return `<div class="card ${ok?'sel':'dim'} ${isBan?'ban':''}" ${ok?`data-champ="${c.name}"`:''} title="${title}">
+    return `<div class="card ${ok?'sel':'dim'} ${isBan?'ban':''}" data-cname="${c.name.toLowerCase()}" ${ok?`data-champ="${c.name}"`:''} title="${title}">
         <img src="${c.img}" alt="${c.name}" onerror="this.parentNode.innerHTML='<div class=\\'imgfail\\'>${c.name}</div>'">
         <div class="nm">${c.name}</div>
       </div>`;
   }).join('');
+  const search = myTurn
+    ? `<input id="champSearch" class="champsearch" type="text" placeholder="Search champion…" autocomplete="off" spellcheck="false">`
+    : '';
   const head = isBan
-    ? `<h3>Pick a champion to ban</h3><span class="count">${pool.length} in pool</span>`
+    ? `<h3>Pick a champion to ban</h3><span class="count">${pool.length} in pool</span>${search}`
     : `<h3>Pick a champion</h3><span class="count">${pool.length} in pool</span>
-       <span class="hint">${st.s===1?'same region is allowed — you then pick the deck\'s 2nd region':'multi-region = choose the region after picking'}</span>`;
+       <span class="hint">${st.s===1?'same region is allowed — you then pick the deck\'s 2nd region':'multi-region = choose the region after picking'}</span>${search}`;
   return `<div class="poolhead">${head}</div><div class="pool">${cards}</div>`;
 }
 function logBlock(){
@@ -1033,11 +1228,18 @@ function renderRegionModal(){
   const validSet = new Set(kind==='champRegion' ? (pend.valid||[]) : opts);
   const c1reg = (kind==='champRegion') ? S.decks[st.p][st.d][0].region : null;
   const title = (kind==='deckSecond')
-    ? `Pick the second region for Deck ${st.d+1}`
+    ? (pend.monoOk ? `Deck ${st.d+1}: Mono ${regName(pend.c2region)} or add a 2nd region?` : `Pick the second region for Deck ${st.d+1}`)
     : `Which region will you play ${champ.name} as?`;
   const sub = (kind==='deckSecond')
-    ? `${pname(st.p)} · both champions are ${regName(pend.c2region)} — choose the deck's other region`
+    ? `${pname(st.p)} · both champions are ${regName(pend.c2region)}${pend.monoOk?' — keep it mono, or pick a second region':" — choose the deck's other region"}`
     : `${pname(st.p)} · Deck ${st.d+1} · ${st.s===0?'1st champion':'2nd champion'}`;
+  const monoHtml = (kind==='deckSecond' && pend.monoOk)
+    ? `<div class="reg-opt mono-opt" data-monodeck="1">
+        <span class="sw" style="background:${regColor(pend.c2region)}"></span>
+        <span class="ro-name">Mono — ${regName(pend.c2region)} only</span>
+        <span class="faint" style="font-size:12px">single-region deck (one per lineup)</span>
+      </div>`
+    : '';
   const optsHtml = opts.map(r=>{
     const ok = validSet.has(r);
     let reason = '';
@@ -1059,7 +1261,7 @@ function renderRegionModal(){
         <img src="${champ.img}" onerror="this.style.display='none'">
         <span class="cn">${champ.name}${kind==='deckSecond'?` <span class="faint" style="font-size:13px">(${regName(pend.c2region)})</span>`:''}</span>
       </div>
-      <div class="reg-opts">${optsHtml}</div>
+      <div class="reg-opts">${monoHtml}${optsHtml}</div>
     </div>`;
   ov.addEventListener('click',(e)=>{ if(e.target===ov){ S.pending=null; render(); }});
   document.body.appendChild(ov);
@@ -1071,27 +1273,37 @@ function renderSummary(){
     const decks = S.decks[p].map((deck,di)=>{
       const slots = deck.map(s=>`<div class="slot">${s?miniCard(s):''}</div>`).join('');
       const dr = deckRegions(deck);
-      const pair = dr.length===2 ? `${regName(dr[0])} + ${regName(dr[1])}` : (dr[0]?regName(dr[0]):'—');
+      const pair = dr.length===2 ? `${regName(dr[0])} + ${regName(dr[1])}` : (isMonoDeck(deck) ? `Mono ${regName(dr[0])}` : (dr[0]?regName(dr[0]):'—'));
       return `<div class="sum-deck"><div class="sum-slots">${slots}</div><div class="sp">DECK ${di+1} · ${pair}</div></div>`;
     }).join('');
+    const regB = (S.regBansBy && S.regBansBy[p] || []).map(r=>
+      `<span class="rchip"><span class="sw" style="background:${regColor(r)}"></span>${regName(r)}</span>`).join('');
+    const champB = (S.champBansBy && S.champBansBy[p] || []).map(n=>{
+      const c = S.champions.find(x=>x.name===n);
+      return `<span class="cban-chip">${c?`<img src="${c.img}" onerror="this.style.display='none'">`:''}${n}</span>`;
+    }).join('');
+    const bansHtml = (regB||champB) ? `<div class="pbans"><div class="lbl">Bans by ${pname(p)}</div><div class="banchips">${regB}${champB}</div></div>` : '';
     return `<div class="pside p${p}"><div class="edge"></div>
-        <h2><span class="dot p${p}"></span>${pname(p)} ${p===1?'<span class="first-tag">FIRST PICK</span>':''}</h2>
-        <div class="sum-decks">${decks}</div></div>`;
+        <h2><span class="dot p${p}"></span>${pname(p)} ${p===1?'<span class="first-tag" style="border-color:rgba(90,169,230,.55);color:var(--p1)">BLUE SIDE</span>':'<span class="first-tag" style="border-color:rgba(224,86,90,.55);color:var(--p2)">RED SIDE</span>'}</h2>
+        <div class="sum-decks">${decks}</div>${bansHtml}</div>`;
   };
   app.innerHTML = `
     <div class="status"><span class="pill pick">DONE</span>
       <div class="instr">Draft complete — 3 decks for each player.</div>
       <div class="spacer"></div>
+      <button class="btn ghost mini" data-fulllog>Show full logs</button>
       <button class="btn warm" id="copyBtn">Copy summary</button>
     </div>
     <div class="board">${panel(1)}${panel(2)}</div>
-    ${banStrip()}
     ${logBlock()}`;
   document.getElementById('copyBtn').onclick = copySummary;
 }
 function copySummary(){
-  const fmt = (p)=> S.decks[p].map((d,i)=>
-    `  Deck ${i+1}: ${d[0].name} (${regName(d[0].region)}) + ${d[1].name} (${regName(d[1].region)})`).join('\n');
+  const fmt = (p)=> S.decks[p].map((d,i)=>{
+    const dr = deckRegions(d);
+    const lbl = dr.length===2 ? `${regName(dr[0])} + ${regName(dr[1])}` : `Mono ${regName(dr[0])}`;
+    return `  Deck ${i+1} [${lbl}]: ${d[0].name} + ${d[1].name}`;
+  }).join('\n');
   const txt =
 `LoR Draft\nFirst pick: ${pname(1)}\n\n${pname(1)}:\n${fmt(1)}\n\n${pname(2)}:\n${fmt(2)}\n\n`+
 `Banned regions: ${[...S.bannedRegions].map(regName).join(', ')||'—'}\n`+
@@ -1111,11 +1323,20 @@ function toast(msg){
 /*  EVENT DELEGATION                                                 */
 /* ================================================================= */
 document.addEventListener('click',(e)=>{
+  if(e.target.closest('[data-fulllog]')){ return showFullLog(); }
+  if(e.target.closest('[data-closelog]')){ document.getElementById('logOverlay')?.remove(); return; }
   if(!S || S.mode!=='game') return;
   if(!isMyTurn()) return;                       // not your turn in the live duel
   const st = curStep();
   const regTile = e.target.closest('[data-region]');
   if(regTile && st.t==='rban'){ return doRegionBan(regTile.dataset.region); }
+  const monoEl = e.target.closest('[data-monodeck]');
+  if(monoEl && S.pending && S.pending.kind==='deckSecond'){
+    const pend = S.pending;
+    S.pending = null;
+    document.getElementById('regOverlay')?.remove();
+    return commitPick(pend.champ, pend.c2region, null);   // mono deck — no 2nd region
+  }
   const pickReg = e.target.closest('[data-pickregion]');
   if(pickReg && S.pending){
     const pend = S.pending;
