@@ -150,9 +150,13 @@ button{font-family:inherit;cursor:pointer}
   border:1px solid rgba(224,86,63,.35);background:rgba(224,86,63,.07)}
 .cban-chip img{width:18px;height:24px;object-fit:cover;border-radius:3px;filter:grayscale(.6)}
 .empty-note{font-size:12px;color:var(--ink-faint);font-style:italic}
-/* per-player bans inside a panel */
-.pbans{margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)}
-.pbans .lbl{font-family:'Cinzel',serif;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--danger);margin-bottom:7px}
+/* per-player bans (shown above the name) */
+.pbans{margin:0 0 14px;padding:10px 12px;border:1px solid rgba(224,86,63,.32);border-radius:10px;background:rgba(224,86,63,.06)}
+.pbans .lbl{font-family:'Cinzel',serif;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--danger);margin-bottom:8px}
+.pbans .banchips{gap:7px}
+.pbans .rchip{font-size:12px;padding:5px 11px}
+.pbans .cban-chip{font-size:12.5px;padding:4px 10px 4px 4px}
+.pbans .cban-chip img{width:26px;height:34px;filter:grayscale(.25)}
 .pside.p2 .pbans .banchips{justify-content:flex-end}
 /* per-action timer */
 .timer{display:flex;align-items:baseline;gap:5px;font-family:'Cinzel',serif;padding:5px 13px;border-radius:9px;
@@ -323,7 +327,7 @@ button{font-family:inherit;cursor:pointer}
   <div class="topbar">
     <div class="brand">
       <span class="s">Legends of Runeterra</span>
-      <span class="t">Draft · Pick &amp; Ban</span>
+      <span class="t">Pick &amp; Ban Tool</span>
     </div>
     <div class="spacer"></div>
     <button class="btn ghost" id="btnUndo" style="display:none">↶ Undo</button>
@@ -855,7 +859,7 @@ function wireupPool(){
 function planLabel(st){
   if(st.t==='rban') return 'ban region';
   if(st.t==='cban') return 'ban champion';
-  return st.s===0 ? 'pick 1st champion' : 'pick 2nd champion';
+  return `pick ${st.s===0?'1st':'2nd'} champion for deck #${st.d+1}`;
 }
 function showFullLog(){
   document.getElementById('logOverlay')?.remove();
@@ -1093,7 +1097,7 @@ function renderGame(){
       <div class="status-top">
         ${liveChip}
         <div class="spacer"></div>
-        <button class="btn ghost mini" data-fulllog>Show full logs</button>
+        <button class="btn ghost" data-fulllog>Show full draft order</button>
         <div class="faint" style="font-size:12px">step ${S.stepIndex+1} / ${S.steps.length}</div>
       </div>
       <div class="now">
@@ -1147,14 +1151,13 @@ function playerPanel(p, st){
     const c = S.champions.find(x=>x.name===n);
     return `<span class="cban-chip">${c?`<img src="${c.img}" onerror="this.style.display='none'">`:''}${n}</span>`;
   }).join('');
-  const bansHtml = (regB||champB)
-    ? `<div class="pbans"><div class="lbl">Bans by ${pname(p)}</div><div class="banchips">${regB}${champB}</div></div>`
-    : '';
+  const bansHtml = `<div class="pbans"><div class="lbl">Bans by ${pname(p)}</div>
+      <div class="banchips">${(regB||champB) ? regB+champB : '<span class="empty-note">none yet</span>'}</div></div>`;
   return `<div class="pside p${p} ${active?'active':''}">
       <div class="edge"></div>
+      ${bansHtml}
       <h2><span class="dot p${p}"></span>${pname(p)} ${isMe?'<span class="first-tag" style="border-color:rgba(79,209,197,.5);color:var(--accent)">YOU</span>':''} ${sideTag}</h2>
       <div class="decks">${decksHtml}</div>
-      ${bansHtml}
     </div>`;
 }
 function miniCard(slot){
@@ -1291,7 +1294,7 @@ function renderSummary(){
     <div class="status"><span class="pill pick">DONE</span>
       <div class="instr">Draft complete — 3 decks for each player.</div>
       <div class="spacer"></div>
-      <button class="btn ghost mini" data-fulllog>Show full logs</button>
+      <button class="btn ghost" data-fulllog>Show full draft order</button>
       <button class="btn warm" id="copyBtn">Copy summary</button>
     </div>
     <div class="board">${panel(1)}${panel(2)}</div>
